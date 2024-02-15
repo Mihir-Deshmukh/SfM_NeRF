@@ -26,7 +26,7 @@ def estimate_fundamental_matrix(matches):
         A[i] = np.array([x_1*x_2, x_2*y_1, x_2, y_2*x_1, y_2*y_1, y_2, x_1, y_1, 1])
     
     
-    print(A.shape)
+    # print(A.shape)
     U,S,V = np.linalg.svd(A)
     # print(S)
     F = V.T[-1].reshape(3,3)

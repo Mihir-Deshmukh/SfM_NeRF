@@ -6,6 +6,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from EstimateFundamentalMatrix import *
 from GetInlierRANSANC import *
+from EssentialMatrixFromFundamentalMatrix import *
+from ExtractCameraPose import *
 
 # Read images
 def read_images(path):
@@ -44,12 +46,9 @@ def main(args):
     for pair in image_pairs:
         matched_pairs.append(parse_matching(basepath + f'matching{pair[0]}.txt', pair))
         
-    # print(len(matched_pairs[9]))
     
     # Ransac and only send the top 8 feature in the fundamental matrix
-
     inliers = get_inlier_RANSAC(matched_pairs[0], 0.01)
-
     # print(inliers)
     
     F = estimate_fundamental_matrix(inliers)
@@ -57,16 +56,25 @@ def main(args):
     image1_uv = np.array([match['image1_uv'] + (1,) for match in matched_pairs[0]])
     image2_uv = np.array([match['image2_uv'] + (1,) for match in matched_pairs[0]])
 
-    # print(image1_uv)
-
-    # Normalize the coordinates
-    # image1_uv, T1 = normalize_pts(image1_uv)
-    # image2_uv, T2 = normalize_pts(image2_uv)
     
     # Estimate the fundamental matrix
     F_, _ = cv2.findFundamentalMat(image1_uv, image2_uv, cv2.FM_RANSAC)
-    print(F)
-    print("cv2",F_)
+    # print(F)
+    # print("cv2",F_)
+    
+    
+    # Get Essential matrix
+    E = get_essential_matrix(F_, instrinsic_parameters)
+    
+    # Get Camera Poses
+    camera_poses = get_camera_poses(E)
+    
+    # print(camera_poses)
+    
+    # Triangulate the points
+    # Iterate two camera poses 1,2 is same as 2,1 at a time and triangulate the points
+    
+    
 
 
 if __name__ == "__main__":
