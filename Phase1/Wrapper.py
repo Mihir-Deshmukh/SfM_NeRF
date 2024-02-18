@@ -8,6 +8,8 @@ from EstimateFundamentalMatrix import *
 from GetInlierRANSANC import *
 from EssentialMatrixFromFundamentalMatrix import *
 from ExtractCameraPose import *
+from LinearTriangulation import *
+from DisambiguateCameraPose import *
 
 # Read images
 def read_images(path):
@@ -49,7 +51,9 @@ def main(args):
     
     # Ransac and only send the top 8 feature in the fundamental matrix
     inliers = get_inlier_RANSAC(matched_pairs[0], 0.01)
-    # print(inliers)
+    print(len(inliers))
+    
+    # print(len(matched_pairs[0]))
     
     F = estimate_fundamental_matrix(inliers)
 
@@ -64,18 +68,40 @@ def main(args):
     
     
     # Get Essential matrix
-    E = get_essential_matrix(F_, instrinsic_parameters)
+    E = get_essential_matrix(F, instrinsic_parameters)
     
     # Get Camera Poses
     camera_poses = get_camera_poses(E)
-    
-    # print(camera_poses)
+    # print(camera_poses[1])
     
     # Triangulate the points
-    # Iterate two camera poses 1,2 is same as 2,1 at a time and triangulate the points
+    R1 = np.eye(3)
+    C1 = np.zeros((3,1))
+    Triangulated_points = []
+    
+    for i in range(4):
+        points = triangulate_points(R1, C1, camera_poses[i][0], camera_poses[i][1], inliers, instrinsic_parameters)
+        # print(points.shape)
+        Triangulated_points.append(points)
+    
+    Triangulated_points = np.array(Triangulated_points)
+    print(Triangulated_points.shape) # (4, 8, 3)
+    
+    for i in range(4):
+        plt.scatter(Triangulated_points[i,:,0], Triangulated_points[i,:,2])
+        
+    plt.show()
     
     
+    
+    
+    # Disambiguate the camera poses
+    camera_pose, correct_worldpoints = disambiguate_camera_pose(camera_poses, Triangulated_points)
 
+    print(camera_pose)
+    
+    
+    
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

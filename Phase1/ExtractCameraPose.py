@@ -11,10 +11,10 @@ def get_camera_poses(E):
     R4 = np.dot(np.dot(U, W.T), Vt)
 
     # Four possible camera positions
-    C1 = U[:, 2]
-    C2 = -U[:, 2]
-    C3 = U[:, 2]
-    C4 = -U[:, 2]
+    C1 = U[:, 2].reshape(3, 1)
+    C2 = -U[:, 2].reshape(3, 1)
+    C3 = U[:, 2].reshape(3, 1)
+    C4 = -U[:, 2].reshape(3, 1)
     
     # check if determinant of all R is negative
     if np.linalg.det(R1) < 0:
