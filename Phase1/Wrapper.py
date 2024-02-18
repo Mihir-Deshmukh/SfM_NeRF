@@ -11,11 +11,28 @@ from ExtractCameraPose import *
 from LinearTriangulation import *
 from DisambiguateCameraPose import *
 
+
+def drawlines(img1,img2,lines,pts1,pts2):
+    ''' img1 - image on which we draw the epilines for the points in img2
+        lines - corresponding epilines '''
+    r,c = img1.shape
+    img1 = cv2.cvtColor(img1,cv2.COLOR_GRAY2BGR)
+    img2 = cv2.cvtColor(img2,cv2.COLOR_GRAY2BGR)
+    for r,pt1,pt2 in zip(lines,pts1,pts2):
+        # print(pt1, pt2)
+        color = tuple(np.random.randint(0,255,3).tolist())
+        x0,y0 = map(int, [0, -r[2]/r[1] ])
+        x1,y1 = map(int, [c, -(r[2]+r[0]*c)/r[1] ])
+        img1 = cv2.line(img1, (x0,y0), (x1,y1), color,1)
+        img1 = cv2.circle(img1,(int(pt1[0]), int(pt1[1])),5,color, -1)
+        img2 = cv2.circle(img2,(int(pt2[0]), int(pt2[1])),5,color, -1)
+    return img1,img2
+
 # Read images
 def read_images(path):
     images = []
     for i in range(5):
-        images.append(cv2.imread(f"{path}{i+1}.png"))
+        images.append(cv2.imread(f"{path}{i+1}.png", cv2.IMREAD_GRAYSCALE))
         # cv2.imshow(f"Image {i+1}", images[i])
         # cv2.waitKey(0)
         # cv2.destroyAllWindows()
@@ -62,13 +79,32 @@ def main(args):
 
     
     # Estimate the fundamental matrix
-    F_, _ = cv2.findFundamentalMat(image1_uv, image2_uv, cv2.FM_RANSAC)
+    F_, mask = cv2.findFundamentalMat(image1_uv, image2_uv, cv2.FM_RANSAC)
     # print(F)
     # print("cv2",F_)
     
+    pts1 = image1_uv[mask.ravel()==1]
+    pts2 = image2_uv[mask.ravel()==1]
+    
+    lines1 = cv2.computeCorrespondEpilines(pts2.reshape(-1,1,2), 2,F_)
+    lines1 = lines1.reshape(-1,3)
+    img5,img6 = drawlines(images[0],images[1],lines1,pts1,pts2)
+    # Find epilines corresponding to points in left image (first image) and
+    # drawing its lines on right image
+    lines2 = cv2.computeCorrespondEpilines(pts1.reshape(-1,1,2), 1,F_)
+    lines2 = lines2.reshape(-1,3)
+    img3,img4 = drawlines(images[1],images[0],lines2,pts2,pts1)
+    plt.subplot(121),plt.imshow(img5)
+    plt.subplot(122),plt.imshow(img3)
+    plt.show()
+    
+    
+    
+    
+    
     
     # Get Essential matrix
-    E = get_essential_matrix(F, instrinsic_parameters)
+    E = get_essential_matrix(F_, instrinsic_parameters)
     
     # Get Camera Poses
     camera_poses = get_camera_poses(E)
