@@ -117,7 +117,7 @@ def main(args):
     
     for i in range(4):
         points = triangulate_points(R1, C1, camera_poses[i][0], camera_poses[i][1], inliers, instrinsic_parameters)
-        print(points)
+        # print(points)
        
         Triangulated_points.append(points)
     
@@ -140,9 +140,6 @@ def main(args):
     plt.scatter(camera_pose[1][0], camera_pose[1][2], c='r')
     plt.show()
     print(f"Correct Camera Pose: {camera_pose}")
-    
-    
-    
     
     
 
