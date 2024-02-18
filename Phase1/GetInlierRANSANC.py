@@ -22,10 +22,10 @@ def get_inlier_RANSAC(matches, threshold):
 
         inliers = set()
 
-        for j in range(len(random_matches)):
+        for j in range(len(matches)):
             
-            points1 = np.array(random_matches[j]['image1_uv'] + (1,))
-            points2 = np.array(random_matches[j]['image2_uv'] + (1,))
+            points1 = np.array(matches[j]['image1_uv'] + (1,))
+            points2 = np.array(matches[j]['image2_uv'] + (1,))
 
             error = calculate_error(points1, points2, F)
             
@@ -37,6 +37,7 @@ def get_inlier_RANSAC(matches, threshold):
             
             best_n = len(inliers)
             best_inliers = inliers
-            best_matches = random_matches[list(best_inliers)]
+            best_matches = np.array(matches)[list(best_inliers)]
 
+    
     return best_matches
