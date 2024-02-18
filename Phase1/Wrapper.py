@@ -104,7 +104,7 @@ def main(args):
     # Get Essential matrix
     E = get_essential_matrix(F_, instrinsic_parameters)
     print(f"Essential Matrix: {E}")
-    print(np.linalg.matrix_rank(E))
+    print(f"Rank of Essential Matrix: {np.linalg.matrix_rank(E)}")
     
     # Get Camera Poses
     camera_poses = get_camera_poses(E)
@@ -117,11 +117,12 @@ def main(args):
     
     for i in range(4):
         points = triangulate_points(R1, C1, camera_poses[i][0], camera_poses[i][1], inliers, instrinsic_parameters)
-        # print(points.shape)
+        print(points)
+       
         Triangulated_points.append(points)
     
     Triangulated_points = np.array(Triangulated_points)
-    print(Triangulated_points.shape) # (4, 8, 3)
+    print(Triangulated_points.shape) # (4, n, 3)
     
     for i in range(4):
         plt.axis([-20, 20, -20, 20])
@@ -131,18 +132,16 @@ def main(args):
     plt.show()
     
     
-    
-    
     # Disambiguate the camera poses
     camera_pose, correct_worldpoints = disambiguate_camera_pose(camera_poses, Triangulated_points)
 
     plt.axis([-20, 20, -20, 20])
     plt.scatter(correct_worldpoints[:,0], correct_worldpoints[:,2])
     plt.scatter(camera_pose[1][0], camera_pose[1][2], c='r')
-    # plt.scatter(Triangulated_points[1,:, 0], Triangulated_points[1,:,2], c='b')
-    # plt.scatter(camera_poses[1][1][0], camera_poses[1][1][2], c='r')
     plt.show()
-    print(camera_pose)
+    print(f"Correct Camera Pose: {camera_pose}")
+    
+    
     
     
     
