@@ -80,8 +80,9 @@ def main(args):
     
     # Estimate the fundamental matrix
     F_, mask = cv2.findFundamentalMat(image1_uv, image2_uv, cv2.FM_RANSAC)
-    # print(F)
-    # print("cv2",F_)
+    print(f"Fundamental Matrix(cv2): {F_}")
+    print(f"Fundamental Matrix: {F}")
+    print(f"Rank of Fundamental Matrix: {np.linalg.matrix_rank(F_)}")
     
     pts1 = image1_uv[mask.ravel()==1]
     pts2 = image2_uv[mask.ravel()==1]
@@ -100,11 +101,10 @@ def main(args):
     
     
     
-    
-    
-    
     # Get Essential matrix
     E = get_essential_matrix(F_, instrinsic_parameters)
+    print(f"Essential Matrix: {E}")
+    print(np.linalg.matrix_rank(E))
     
     # Get Camera Poses
     camera_poses = get_camera_poses(E)
@@ -124,7 +124,9 @@ def main(args):
     print(Triangulated_points.shape) # (4, 8, 3)
     
     for i in range(4):
+        plt.axis([-20, 20, -20, 20])
         plt.scatter(Triangulated_points[i,:,0], Triangulated_points[i,:,2])
+        plt.scatter(camera_poses[i][1][0], camera_poses[i][1][2], c='r')
         
     plt.show()
     
@@ -134,6 +136,12 @@ def main(args):
     # Disambiguate the camera poses
     camera_pose, correct_worldpoints = disambiguate_camera_pose(camera_poses, Triangulated_points)
 
+    plt.axis([-20, 20, -20, 20])
+    plt.scatter(correct_worldpoints[:,0], correct_worldpoints[:,2])
+    plt.scatter(camera_pose[1][0], camera_pose[1][2], c='r')
+    # plt.scatter(Triangulated_points[1,:, 0], Triangulated_points[1,:,2], c='b')
+    # plt.scatter(camera_poses[1][1][0], camera_poses[1][1][2], c='r')
+    plt.show()
     print(camera_pose)
     
     
