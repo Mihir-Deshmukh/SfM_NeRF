@@ -4,11 +4,10 @@ def make_skew(x):
     return np.array([[0, -x[2], x[1]], [x[2], 0, -x[0]], [-x[1], x[0], 0]])
 
 def triangulate_points(R1, C1, R2, C2, matched_points, K):
-    # Convert matched points to homogeneous coordinates
 
     # Compute the projection matrices for the two cameras
     Translation1 = - R1 @ C1
-    P1 = K @ np.hstack((R1, Translation1)) # (3 x 3) @ (3 x 4) = 3 x 4
+    P1 = K @ np.hstack((R1, Translation1)) # 3x4
 
     Translation2 = - R2 @ C2
     P2 = K @ np.hstack((R2, Translation2))
@@ -26,6 +25,8 @@ def triangulate_points(R1, C1, R2, C2, matched_points, K):
         
         U, S, Vt = np.linalg.svd(A)
         V = Vt.T
+        
+        print(V)
         
         world_point = V[:,-1] / V[-1,-1]
         # print(world_point)
