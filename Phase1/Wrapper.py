@@ -208,7 +208,7 @@ def main(args):
     
     
     # Get Essential matrix
-    E = get_essential_matrix(F_, instrinsic_parameters)
+    E = get_essential_matrix(F, instrinsic_parameters)
     print(f"Essential Matrix: {E}")
     print(f"Rank of Essential Matrix: {np.linalg.matrix_rank(E)}")
     
