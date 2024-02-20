@@ -5,6 +5,7 @@ import cv2
 import numpy as np
 import random
 import matplotlib.pyplot as plt
+from scipy.spatial.transform import Rotation
 from EstimateFundamentalMatrix import *
 from GetInlierRANSANC import *
 from EssentialMatrixFromFundamentalMatrix import *
@@ -70,24 +71,31 @@ def find_common_features(target_images, matched_pairs_list):
 
     # Initialize a dictionary to store the initial set of common points
     # using image1_uv from the first pair as the unique key
-    common_features = {match['image1_uv']: {'image1_uv': match['image1_uv']}
-                       for match in matched_pairs_list[0]}
-    for match in matched_pairs_list[0]:
-        common_features[match['image1_uv']][f'image{target_images[1]}_uv'] = match['image2_uv']
+    common_features = {}
+    feature_indices = {}
+    for index, match in enumerate(matched_pairs_list[0]):
+        common_features[match['image1_uv']] = {'image1_uv': match['image1_uv'], f'image{target_images[1]}_uv': match['image2_uv']}
+        feature_indices[match['image1_uv']] = [index]  # Initialize list with the index of the match in the first list
 
     # Iterate over each additional list of matched pairs
     for i, matches in enumerate(matched_pairs_list[1:], start=1):
         current_features = {}
-        for match in matches:
+        for j, match in enumerate(matches):
             if match['image1_uv'] in common_features:
                 new_entry = common_features[match['image1_uv']].copy()
                 new_entry[f'image{target_images[i+1]}_uv'] = match['image2_uv']
                 current_features[match['image1_uv']] = new_entry
+                # Append the index of the match in the current list to the tracking list
+                feature_indices[match['image1_uv']].append(j)
         common_features = current_features
 
     # Convert the common features dictionary back to a list format as specified
     output_features = list(common_features.values())
-    return output_features
+
+    # For indices, flatten the list of indices for common features
+    output_indices = [indices for key, indices in feature_indices.items() if key in common_features]
+
+    return output_features, output_indices
 
 
 
@@ -134,6 +142,7 @@ def ransac_for_robust_features(matched_pairs, image1, image2):
 
 def main(args):
     
+    print("Started SFM")
     basepath = args.path
     images = read_images(basepath)
      
@@ -146,37 +155,26 @@ def main(args):
     for pair in image_pairs:
         matched_pairs.append(parse_matching(basepath + f'matching{pair[0]}.txt', pair))
         
-    print(len(matched_pairs[0]))
-    #print(matched_pairs[0][0])
-    
-    # contains best inliers for all the images
+    # Will contain best inliers for all the images
     bestInliers = []
     
+    # Run RANSAC for each image pair
     for i in range(10):
 
-        image_idx1 = image_pairs[i][0] - 1
-        image_idx2 = image_pairs[i][1] - 1
-
+        # image_idx1 = image_pairs[i][0] - 1
+        # image_idx2 = image_pairs[i][1] - 1
         # print("all", len(matched_pairs[i]))
-        
         # inliers_homo = ransac_for_robust_features(matched_pairs[i], images[image_idx1], images[image_idx2])
 
-        # print("from homo ransac", len(inliers_homo))
-        
         inliers = get_inlier_RANSAC(matched_pairs[i], 0.1)
-
-        print("from f ransac", len(inliers))
-
         bestInliers.append(inliers)
+        
+        print(f"Unique matches in Image pair {image_pairs[i]} after RANSAC:", len(inliers))
     
-   
     
-    # Ransac and only send the top 8 feature in the fundamental matrix
-    # inliers = get_inlier_RANSAC(matched_pairs[0], 0.1)
-    # print(len(inliers))
     
-    # print(len(matched_pairs[0]))
-    
+    # Fundamental matrix between Image 1 and Image 2    
+    print("\n----------------------------Finding Fundamental Matrix--------------------------------")
     F = estimate_fundamental_matrix(bestInliers[0])
 
     image1_uv = np.array([match['image1_uv'] + (1,) for match in bestInliers[0]])
@@ -216,13 +214,14 @@ def main(args):
     camera_poses = get_camera_poses(E)
     # print(camera_poses[1])
     
+    
+    print(f"\n---------------------------------------Started Linear Triangulation-------------------")
     # Triangulate the points
     R1 = np.eye(3)
     C1 = np.zeros((3,1))
     Triangulated_points = []
     
-    print(len(bestInliers[0]))
-    
+
     for i in range(4):
         points = triangulate_points(R1, C1, camera_poses[i][0], camera_poses[i][1], bestInliers[0], instrinsic_parameters)
         # print(points)
@@ -237,16 +236,13 @@ def main(args):
         plt.scatter(Triangulated_points[i,:,0], Triangulated_points[i,:,2], s=1)
         plt.scatter(camera_poses[i][1][0], camera_poses[i][1][2], c='r', s=4)
         
-        
+    plt.title("Linear Triangulation") 
     plt.show()
+        
     
     # Disambiguate the camera poses
+    print(f"---------------------------------------Disambiguated Camera Pose -------------------")
     camera_pose, correct_worldpoints = disambiguate_camera_pose(camera_poses, Triangulated_points)
-
-    plt.axis([-15, 15, -5, 25])
-    plt.scatter(correct_worldpoints[:,0], correct_worldpoints[:,2], s=1)
-    plt.scatter(camera_pose[1][0], camera_pose[1][2], s=4, c='r')
-    # plt.show()
     print(f"Correct Camera Pose: {camera_pose}")
     
     
@@ -254,6 +250,8 @@ def main(args):
     pts2 = np.array([match['image2_uv'] + (1,) for match in bestInliers[0]])
     
     
+    
+    print(f"---------------------------------------Started Non Linear Triangulation-------------------")
     # Non Linear Triangulation
     reprojected_points = NonlinearTriangulation(instrinsic_parameters, np.eye(3), np.zeros((3,1)), camera_pose[0], camera_pose[1], correct_worldpoints, pts1, pts2)
     
@@ -275,31 +273,57 @@ def main(args):
 
     print(f"Non-Linear Reprojection Error: {np.mean(error)}")
     
+    print(f"---------------------------------------Plotting-------------------")
+    fig, ax = plt.subplots()
+
+    # Plot the reprojected points
+    plt.scatter(correct_worldpoints[:,0], correct_worldpoints[:,2], s=1, c='r', label="Linear Triangulation")
+    plt.scatter(reprojected_points[:,0], reprojected_points[:,2], s=1, c='b', label="Non-Linear Triangulation")
+    
+    # Plot camera positions and orientations
+    for rotation, position, label in  [(R1, C1, "1"), (camera_pose[0], camera_pose[1], "2")]:
+        # Convert rotation matrix to Euler angles
+        angles = Rotation.from_matrix(rotation).as_euler('XYZ')
+        angles_deg = np.rad2deg(angles)
+        # print(f"Camera {label} position: {position}, orientation: {angles_deg}")
+        
+        ax.plot(position[0], position[2], marker=(3, 0, int(angles_deg[1])), markersize=15, linestyle='None', label=f'Camera {label}') 
+        
+        # Annotate camera with label
+        correction = -0.1
+        ax.annotate(label, xy=(position[0] + correction, position[2] + correction))
+
+    # Setting the plot axis limits
     plt.axis([-15, 15, -5, 25])
-    plt.scatter(reprojected_points[:,0], reprojected_points[:,2], s=1)
-    plt.scatter(camera_pose[1][0], camera_pose[1][2], c='r', s=4)
+
+    # Adding labels and legend
+    plt.xlabel('X')
+    plt.ylabel('Z')
+    plt.legend()
     plt.show()
     
     R_All = []
     C_All = []
     R_All.append(np.eye(3))
     C_All.append(np.zeros((3,1)))
-    R_All
     
     
     # Linear PnP and Pnp Ransac
-    
-    common = find_common_features([1,2,3], bestInliers[0:2])
-    print(len(common))
-    
+    print(f"---------------------------------------Started LinearPnP RANSAC-------------------")    
     start_imgs = [1,2]
-
+    
+    # Do this for the remaining images
     for i in range(3):
         
         start_imgs.append(i+3)
         common_points, orig_indices = find_common_features(start_imgs, bestInliers[0:i+2])
         # print(common_points)
-        relevant_world_points = correct_worldpoints[orig_indices]
+        relevant_world_points = reprojected_points[orig_indices[:][0]]
+        
+        # PnP Ransac
+        
+        # R, C = PnPRANSAC(common_points, relevant_world_points, instrinsic_parameters)
+        
         
         
         # R_All.append(R)
