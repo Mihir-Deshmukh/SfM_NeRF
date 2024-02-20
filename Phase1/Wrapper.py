@@ -3,6 +3,7 @@
 import argparse
 import cv2
 import numpy as np
+import random
 import matplotlib.pyplot as plt
 from EstimateFundamentalMatrix import *
 from GetInlierRANSANC import *
@@ -13,6 +14,7 @@ from DisambiguateCameraPose import *
 from NonlinearTriangulation import *
 from LinearPnP import *
 
+np.random.seed(50)
 
 def drawlines(img1,img2,lines,pts1,pts2):
     ''' img1 - image on which we draw the epilines for the points in img2
@@ -87,9 +89,46 @@ def find_common_features(target_images, matched_pairs_list):
 
     return output_features
 
+def ransac_for_robust_features(matched_pairs, image1, image2):
 
+    src_pts = np.float32([m['image1_uv'] for m in matched_pairs])
+    dst_pts = np.float32([m['image2_uv'] for m in matched_pairs])
 
+    max_inliers_count = 0
+    best_H = None
+    best_inliers = []
 
+    for _ in range(1):
+
+        random_matches = np.random.choice(matched_pairs, 4)
+        src_pts = np.float32([m['image1_uv'] for m in random_matches])
+        dst_pts = np.float32([m['image2_uv'] for m in random_matches])
+
+        H, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC)
+
+        inliers = []
+
+        for i in range(len(matched_pairs)):
+            point1_homogeneous = np.append(matched_pairs[i]['image1_uv'], 1) # Convert to homogeneous coordinates
+            projected_point = np.dot(H, point1_homogeneous) 
+
+            projected_point = projected_point[:2] / projected_point[2]
+
+            # Calculate the distance between the projected point and the actual destination point
+            point2 = np.array(matched_pairs[i]['image2_uv'])
+            distance = np.linalg.norm(projected_point - point2)
+
+            # If the distance is below a threshold, count it as an inlier
+            if distance < 50: # Threshold of 5 pixels
+                inliers.append(matched_pairs[i])
+
+        # Update the best homography if this iteration's inliers are the maximum found so far
+        if len(inliers) > max_inliers_count:
+            max_inliers_count = len(inliers)
+            best_H = H
+            best_inliers = inliers
+
+    return best_inliers
 
 def main(args):
     
@@ -105,32 +144,42 @@ def main(args):
     for pair in image_pairs:
         matched_pairs.append(parse_matching(basepath + f'matching{pair[0]}.txt', pair))
         
-    print(len(matched_pairs[0]))
-    print(matched_pairs[0][0])
+    #print(len(matched_pairs[0]))
+    #print(matched_pairs[0][0])
     
     # contains best inliers for all the images
     bestInliers = []
     
     for i in range(10):
+
+        image_idx1 = image_pairs[i][0] - 1
+        image_idx2 = image_pairs[i][1] - 1
+
+        # print("all", len(matched_pairs[i]))
         
-        inliers_homo = ransac_for_robust_features(matched_pairs[i], images[i], images[i+1])
+        # inliers_homo = ransac_for_robust_features(matched_pairs[i], images[image_idx1], images[image_idx2])
+
+        # print("from homo ransac", len(inliers_homo))
         
-        inliers = get_inlier_RANSAC(inliers_homo, 0.1)
+        inliers = get_inlier_RANSAC(matched_pairs[i], 0.1)
+
+        print("from f ransac", len(inliers))
+
         bestInliers.append(inliers)
         
     
    
     
     # Ransac and only send the top 8 feature in the fundamental matrix
-    inliers = get_inlier_RANSAC(matched_pairs[0], 0.1)
-    print(len(inliers))
+    # inliers = get_inlier_RANSAC(matched_pairs[0], 0.1)
+    # print(len(inliers))
     
     # print(len(matched_pairs[0]))
     
-    F = estimate_fundamental_matrix(inliers)
+    F = estimate_fundamental_matrix(bestInliers[0])
 
-    image1_uv = np.array([match['image1_uv'] + (1,) for match in matched_pairs[0]])
-    image2_uv = np.array([match['image2_uv'] + (1,) for match in matched_pairs[0]])
+    image1_uv = np.array([match['image1_uv'] + (1,) for match in bestInliers[0]])
+    image2_uv = np.array([match['image2_uv'] + (1,) for match in bestInliers[0]])
     
     # Estimate the fundamental matrix
     F_, mask = cv2.findFundamentalMat(image1_uv, image2_uv, cv2.FM_RANSAC)
@@ -139,8 +188,7 @@ def main(args):
     print(f"Rank of Fundamental Matrix: {np.linalg.matrix_rank(F)}")
     
     pts1 = image1_uv[mask.ravel()==1]
-    pts2 = image2_uv[mask.ravel()==1]
-    
+    pts2 = image2_uv[mask.ravel()==1]    
     
     lines1 = cv2.computeCorrespondEpilines(pts2.reshape(-1,1,2), 2,F)
     lines1 = lines1.reshape(-1,3)
