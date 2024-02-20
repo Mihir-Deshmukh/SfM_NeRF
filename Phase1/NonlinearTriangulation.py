@@ -2,10 +2,10 @@ import scipy
 import numpy as np
 
 def get_projectionMatrix(K,R,C):
-        C = np.reshape(C, (3, 1))        
-        I = np.identity(3)
-        projectionMatrix = np.dot(K, np.dot(R, np.hstack((I, -C))))
-        return projectionMatrix
+    C = np.reshape(C, (3, 1))        
+    I = np.identity(3)
+    projectionMatrix = np.dot(K, np.dot(R, np.hstack((I, -C))))
+    return projectionMatrix
 
 def NonlinearTriangulation(K, R1, C1, R2, C2, world_points, pts1, pts2):
     
@@ -23,13 +23,13 @@ def NonlinearTriangulation(K, R1, C1, R2, C2, world_points, pts1, pts2):
 
 
 def reprojection_loss(x0, P1, P2, pts1, pts2):
-    p1_1T, p1_2T, p1_3T = P1 # rows of P1
+    p1_1T, p1_2T, p1_3T = P1
     p1_1T, p1_2T, p1_3T = p1_1T.reshape(1,-1), p1_2T.reshape(1,-1),p1_3T.reshape(1,-1)
 
-    p2_1T, p2_2T, p2_3T = P2 # rows of P2
+    p2_1T, p2_2T, p2_3T = P2
     p2_1T, p2_2T, p2_3T = p2_1T.reshape(1,-1), p2_2T.reshape(1,-1), p2_3T.reshape(1,-1)
 
-    ## reprojection error for reference camera points - j = 1
+    ## reprojection error for reference camera points
     u1,v1 = pts1[0], pts1[1]
     u1_proj = np.divide(p1_1T.dot(x0) , p1_3T.dot(x0))
     v1_proj =  np.divide(p1_2T.dot(x0) , p1_3T.dot(x0))

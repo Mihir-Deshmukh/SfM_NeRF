@@ -14,6 +14,8 @@ from LinearTriangulation import *
 from DisambiguateCameraPose import *
 from NonlinearTriangulation import *
 from LinearPnP import *
+from PnPRANSAC import *
+from NonlinearPnP import *
 
 np.random.seed(50)
 
@@ -306,36 +308,95 @@ def main(args):
     C_All = []
     R_All.append(np.eye(3))
     C_All.append(np.zeros((3,1)))
+    R_All.append(camera_pose[0])
+    C_All.append(camera_pose[1])
+    
+    print(f"R_All: {R_All}")
+    print(f"C_All: {C_All}")
     
     
     # Linear PnP and Pnp Ransac
-    print(f"---------------------------------------Started LinearPnP RANSAC-------------------")    
+    print(f"---------------------------------------Starting PnP----------------------------------------------------")    
     start_imgs = [1,2]
+    pnpError = []
     
     # Do this for the remaining images
     for i in range(3):
         
+        print(f"...................................Image {i+3}...........................................")
+        
         start_imgs.append(i+3)
         common_points, orig_indices = find_common_features(start_imgs, bestInliers[0:i+2])
         # print(common_points)
-        relevant_world_points = reprojected_points[orig_indices[:][0]]
+        
+        
+        indices = np.array(orig_indices)[:,0]
+        relevant_world_points = reprojected_points[indices]
+        # print(relevant_world_points)
+        
+        
+        common_points_img = [match[f'image{i+3}_uv'] + (1,) for match in common_points]
+        pts1 = [match['image1_uv'] + (1,) for match in common_points]
+        P1 = get_projectionMatrix(instrinsic_parameters, np.eye(3), np.zeros((3,1)))
+        
+        # print(common_points_img[0])
+        print(f"Common features with previous images: {len(common_points_img)}")
+        # print(f"relevant_world_points: {len(relevant_world_points)}")
+        
         
         # PnP Ransac
+        print(f"{len(common_points_img)} and {len(relevant_world_points)}")
+        camera_pose, new_inliers = PnPRANSAC(common_points_img, relevant_world_points, instrinsic_parameters)
+        R_new, C_new = camera_pose
         
-        # R, C = PnPRANSAC(common_points, relevant_world_points, instrinsic_parameters)
+        print(f"Inliers after PnP RANSAC: {len(new_inliers)}")
         
         
+        # Non Linear PnP
+        R_new, C_new = NonLinearPnP(common_points_img, relevant_world_points, R_new, C_new, instrinsic_parameters)
+        P = get_projectionMatrix(instrinsic_parameters, R_new, C_new)
         
-        # R_All.append(R)
-        # C_All.append(C)
+        pnpError = []
+        # NonLinear PnP error
+        for i in range(len(relevant_world_points)):
+            # print(reprojection_error_pnp(P, common_points_img[i], relevant_world_points[i]))
+            pnpError.append(reprojection_error_pnp(P, common_points_img[i], relevant_world_points[i]))
+            # error.append(reprojection_loss(relevant_world_points[i], P1, P, pts1[i], common_points_img[i]))
+            
+        print(f"NonLinear PnP Error: {np.mean(pnpError)}")
+        
+        R_All.append(R_new)
+        C_All.append(C_new)
+        
+      
     
-    # Non Linear PnP
+    print(f"--------------------------------------PnP Done-------------------------------------------------------")    
+    print(f"R_All: {R_All}")
+    print(f"C_All: {C_All}")
     
     
+    # plot the camera positions and orientations
     
+    fig, ax = plt.subplots()
+    plt.scatter(reprojected_points[:,0], reprojected_points[:,2], s=1, c='b', label="Non-Linear Triangulation")
+    for i in range(5):
+        # Convert rotation matrix to Euler angles
+        angles = Rotation.from_matrix(R_All[i]).as_euler('XYZ')
+        angles_deg = np.rad2deg(angles)
+        # print(f"Camera {label} position: {position}, orientation: {angles_deg}")
+        
+        ax.plot(C_All[i][0], C_All[i][2], marker=(3, 0, int(angles_deg[1])), markersize=15, linestyle='None', label=f'Camera {i+1}') 
+        
+        # Annotate camera with label
+        correction = -0.1
+        ax.annotate(i+1, xy=(C_All[i][0] + correction, C_All[i][2] + correction))
     
-    R_All = []
-    C_All = []
+    plt.axis([-15, 15, -5, 25])
+    plt.xlabel('X')
+    plt.ylabel('Z')
+    plt.legend()
+    plt.title("Camera Positions and Orientations after Non Linear PnP")
+    plt.show()
     
     #Bundle Adjustment
     
