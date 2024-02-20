@@ -55,39 +55,41 @@ def read_intrinsics(path):
     
     
 def find_common_features(target_images, matched_pairs_list):
-    # Initialize common_features with the first list, avoiding duplicates
-    common_features = {}
-    for match in matched_pairs_list[0]:
-        if match['image1_uv'] not in common_features:
-            common_features[match['image1_uv']] = {
-                'image1_uv': match['image1_uv'],
-                f'image{target_images[1]}_uv': match['image2_uv']
-            }
+    
+    output_indices = []
+    
+    # Directly return the matches in the specified format if only one pair is provided
+    if len(target_images) == 2 and len(matched_pairs_list) == 1:
+        output_features = [{
+            'image1_uv': match['image1_uv'],
+            f'image{target_images[1]}_uv': match['image2_uv']
+        } for match in matched_pairs_list[0]]
+        
+        output_indices = list(range(len(matched_pairs_list[0])))
+        return output_features, output_indices
 
-    print(len(common_features))
+    # Initialize a dictionary to store the initial set of common points
+    # using image1_uv from the first pair as the unique key
+    common_features = {match['image1_uv']: {'image1_uv': match['image1_uv']}
+                       for match in matched_pairs_list[0]}
+    for match in matched_pairs_list[0]:
+        common_features[match['image1_uv']][f'image{target_images[1]}_uv'] = match['image2_uv']
+
     # Iterate over each additional list of matched pairs
     for i, matches in enumerate(matched_pairs_list[1:], start=1):
-        # Filter current matches to remove duplicates based on image1_uv
-        current_matches_filtered = {}
-        for match in matches:
-            if match['image1_uv'] not in current_matches_filtered:
-                current_matches_filtered[match['image1_uv']] = match
-
-        # Use filtered matches for current iteration
         current_features = {}
-        for uv, match in current_matches_filtered.items():
-            if uv in common_features:
-                new_entry = common_features[uv].copy()
+        for match in matches:
+            if match['image1_uv'] in common_features:
+                new_entry = common_features[match['image1_uv']].copy()
                 new_entry[f'image{target_images[i+1]}_uv'] = match['image2_uv']
-                current_features[uv] = new_entry
-
-        # Update common_features for the next iteration
+                current_features[match['image1_uv']] = new_entry
         common_features = current_features
 
-    # Convert back to list format as specified
+    # Convert the common features dictionary back to a list format as specified
     output_features = list(common_features.values())
-
     return output_features
+
+
 
 def ransac_for_robust_features(matched_pairs, image1, image2):
 
@@ -144,7 +146,7 @@ def main(args):
     for pair in image_pairs:
         matched_pairs.append(parse_matching(basepath + f'matching{pair[0]}.txt', pair))
         
-    #print(len(matched_pairs[0]))
+    print(len(matched_pairs[0]))
     #print(matched_pairs[0][0])
     
     # contains best inliers for all the images
@@ -166,7 +168,6 @@ def main(args):
         print("from f ransac", len(inliers))
 
         bestInliers.append(inliers)
-        
     
    
     
@@ -190,18 +191,20 @@ def main(args):
     pts1 = image1_uv[mask.ravel()==1]
     pts2 = image2_uv[mask.ravel()==1]    
     
-    lines1 = cv2.computeCorrespondEpilines(pts2.reshape(-1,1,2), 2,F)
+    bestInliers[0] = bestInliers[0][mask.ravel()==1]
+   
+    
+    lines1 = cv2.computeCorrespondEpilines(pts2.reshape(-1,1,2), 2,F_)
     lines1 = lines1.reshape(-1,3)
     img5,img6 = drawlines(images[0],images[1],lines1,pts1,pts2)
     # Find epilines corresponding to points in left image (first image) and
     # drawing its lines on right image
-    lines2 = cv2.computeCorrespondEpilines(pts1.reshape(-1,1,2), 1,F)
+    lines2 = cv2.computeCorrespondEpilines(pts1.reshape(-1,1,2), 1,F_)
     lines2 = lines2.reshape(-1,3)
     img3,img4 = drawlines(images[1],images[0],lines2,pts2,pts1)
     plt.subplot(121),plt.imshow(img5)
     plt.subplot(122),plt.imshow(img3)
     plt.show()
-    
     
     
     # Get Essential matrix
@@ -218,9 +221,12 @@ def main(args):
     C1 = np.zeros((3,1))
     Triangulated_points = []
     
+    print(len(bestInliers[0]))
+    
     for i in range(4):
-        points = triangulate_points(R1, C1, camera_poses[i][0], camera_poses[i][1], inliers, instrinsic_parameters)
+        points = triangulate_points(R1, C1, camera_poses[i][0], camera_poses[i][1], bestInliers[0], instrinsic_parameters)
         # print(points)
+        # print(points.shape)
         Triangulated_points.append(points)
     
     Triangulated_points = np.array(Triangulated_points)
@@ -228,25 +234,24 @@ def main(args):
     
     for i in range(4):
         plt.axis([-20, 20, -20, 20])
-        plt.scatter(Triangulated_points[i,:,0], Triangulated_points[i,:,2], s=4)
+        plt.scatter(Triangulated_points[i,:,0], Triangulated_points[i,:,2], s=1)
         plt.scatter(camera_poses[i][1][0], camera_poses[i][1][2], c='r', s=4)
         
-        # plt.plot()
         
     plt.show()
     
     # Disambiguate the camera poses
     camera_pose, correct_worldpoints = disambiguate_camera_pose(camera_poses, Triangulated_points)
 
-    plt.axis([-20, 20, -20, 20])
-    plt.scatter(correct_worldpoints[:,0], correct_worldpoints[:,2], s=4)
+    plt.axis([-15, 15, -5, 25])
+    plt.scatter(correct_worldpoints[:,0], correct_worldpoints[:,2], s=1)
     plt.scatter(camera_pose[1][0], camera_pose[1][2], s=4, c='r')
-    plt.show()
+    # plt.show()
     print(f"Correct Camera Pose: {camera_pose}")
     
     
-    pts1 = np.array([match['image1_uv'] + (1,) for match in inliers])
-    pts2 = np.array([match['image2_uv'] + (1,) for match in inliers])
+    pts1 = np.array([match['image1_uv'] + (1,) for match in bestInliers[0]])
+    pts2 = np.array([match['image2_uv'] + (1,) for match in bestInliers[0]])
     
     
     # Non Linear Triangulation
@@ -270,8 +275,8 @@ def main(args):
 
     print(f"Non-Linear Reprojection Error: {np.mean(error)}")
     
-    plt.axis([-20, 20, -20, 20])
-    plt.scatter(reprojected_points[:,0], reprojected_points[:,2], s=4)
+    plt.axis([-15, 15, -5, 25])
+    plt.scatter(reprojected_points[:,0], reprojected_points[:,2], s=1)
     plt.scatter(camera_pose[1][0], camera_pose[1][2], c='r', s=4)
     plt.show()
     
@@ -284,14 +289,21 @@ def main(args):
     
     # Linear PnP and Pnp Ransac
     
-    common = find_common_features([1,2,3], matched_pairs[0:2])
+    common = find_common_features([1,2,3], bestInliers[0:2])
+    print(len(common))
     
+    start_imgs = [1,2]
 
-    # for i in range(4):
-    #     # pts = 
+    for i in range(3):
         
-    #     R_All.append(R)
-    #     C_All.append(C)
+        start_imgs.append(i+3)
+        common_points, orig_indices = find_common_features(start_imgs, bestInliers[0:i+2])
+        # print(common_points)
+        relevant_world_points = correct_worldpoints[orig_indices]
+        
+        
+        # R_All.append(R)
+        # C_All.append(C)
     
     # Non Linear PnP
     

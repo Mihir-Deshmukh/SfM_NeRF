@@ -2,7 +2,7 @@ import numpy as np
 import cv2
 from EstimateFundamentalMatrix import *
 
-np.random.seed(300)
+np.random.seed(500)
 
 
 def calculate_error(x1, x2, F):

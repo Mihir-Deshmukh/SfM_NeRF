@@ -21,13 +21,15 @@ def estimate_fundamental_matrix(matches):
     
     A = np.zeros((image1_uv.shape[0],9))
     for i in range(image1_uv.shape[0]):
+        
         x_1,y_1 = image1_uv[i][0], image1_uv[i][1]
         x_2,y_2 = image2_uv[i][0], image2_uv[i][1]
         A[i] = np.array([x_1*x_2, x_2*y_1, x_2, y_2*x_1, y_2*y_1, y_2, x_1, y_1, 1])
     
-    
+    # print(A)
     # print(A.shape)
     U,S,V = np.linalg.svd(A)
+    
     # print(S)
     F = V.T[-1].reshape(3,3)
 
@@ -62,6 +64,7 @@ def normalize_pts(pts):
 
 def parse_matching(file_path, pair):
     matches = []
+    seen_uv = set()
     
     with open(file_path, 'r') as file:
         n_features = int(file.readline().split(":")[1].strip())
@@ -71,6 +74,11 @@ def parse_matching(file_path, pair):
             n_matches = int(parts[0])
             color = tuple(map(int, parts[1:4]))
             current_image_uv = tuple(map(float, parts[4:6]))
+            
+            # For handling duplicate matches
+            if current_image_uv in seen_uv:
+                continue
+            seen_uv.add(current_image_uv)
 
             i = 0
             offset = 6  # Starting offset for match information
