@@ -25,19 +25,19 @@ def estimate_fundamental_matrix(matches):
         x_1,y_1 = image1_uv[i][0], image1_uv[i][1]
         x_2,y_2 = image2_uv[i][0], image2_uv[i][1]
         A[i] = np.array([x_1*x_2, x_2*y_1, x_2, y_2*x_1, y_2*y_1, y_2, x_1, y_1, 1])
-    
+
     # print(A)
     # print(A.shape)
     U,S,V = np.linalg.svd(A)
     
     # print(S)
-    F = V.T[-1].reshape(3,3)
+    F = V.T[:, -1].reshape(3,3)
 
     U,S,V = np.linalg.svd(F)
     # print(S)
     S[2] = 0                            #rank 2 constraint
     F = np.dot(U,np.dot(np.diag(S),V))
-    
+    # print("F before normalization", F)
     F = np.dot(T2.T, np.dot(F, T1))   #This is given in algorithm for normalization
     F = F / F[2,2]
     

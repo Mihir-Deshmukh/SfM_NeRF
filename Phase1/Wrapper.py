@@ -17,7 +17,7 @@ from LinearPnP import *
 from PnPRANSAC import *
 from NonlinearPnP import *
 
-np.random.seed(50)
+np.random.seed(100)
 
 def drawlines(img1,img2,lines,pts1,pts2):
     ''' img1 - image on which we draw the epilines for the points in img2
@@ -184,7 +184,7 @@ def main(args):
     
     # Estimate the fundamental matrix
     F_, mask = cv2.findFundamentalMat(image1_uv, image2_uv, cv2.FM_RANSAC)
-    print(f"Fundamental Matrix(cv2): {F_}")
+    # print(f"Fundamental Matrix(cv2): {F_}")
     print(f"Fundamental Matrix: {F}")
     print(f"Rank of Fundamental Matrix: {np.linalg.matrix_rank(F)}")
     
@@ -194,12 +194,12 @@ def main(args):
     bestInliers[0] = bestInliers[0][mask.ravel()==1]
    
     
-    lines1 = cv2.computeCorrespondEpilines(pts2.reshape(-1,1,2), 2,F_)
+    lines1 = cv2.computeCorrespondEpilines(pts2.reshape(-1,1,2), 2,F)
     lines1 = lines1.reshape(-1,3)
     img5,img6 = drawlines(images[0],images[1],lines1,pts1,pts2)
     # Find epilines corresponding to points in left image (first image) and
     # drawing its lines on right image
-    lines2 = cv2.computeCorrespondEpilines(pts1.reshape(-1,1,2), 1,F_)
+    lines2 = cv2.computeCorrespondEpilines(pts1.reshape(-1,1,2), 1,F)
     lines2 = lines2.reshape(-1,3)
     img3,img4 = drawlines(images[1],images[0],lines2,pts2,pts1)
     plt.subplot(121),plt.imshow(img5)
