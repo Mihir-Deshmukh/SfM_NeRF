@@ -3,17 +3,18 @@ import cv2
 
 # Reference: https://imkaywu.github.io/blog/2017/06/fundamental-matrix/
 
-def estimate_fundamental_matrix(matches):
+def estimate_fundamental_matrix(random_matches_1, random_matches_2):
 
-    image1_uv = np.array([match['image1_uv'] + (1,) for match in matches])
-    image2_uv = np.array([match['image2_uv'] + (1,) for match in matches])
+    # image1_uv = np.array([match['image1_uv'] + (1,) for match in matches])
+    # image2_uv = np.array([match['image2_uv'] + (1,) for match in matches])
     # print(image1_uv)
-    
+
+    image1_uv = np.array(random_matches_1) 
+    image2_uv = np.array(random_matches_2)
+
     # Normalize the coordinates
-    image1_uv, T1 = normalize_pts(image1_uv)
-    image2_uv, T2 = normalize_pts(image2_uv)
-    
-    # print(image1_uv)
+    #image1_uv, T1 = normalize_pts(random_matches_1)
+    #image2_uv, T2 = normalize_pts(random_matches_2)
     
     # Estimate the fundamental matrix
     # F, _ = cv2.findFundamentalMat(image1_uv, image2_uv, cv2.FM_RANSAC)
@@ -36,7 +37,7 @@ def estimate_fundamental_matrix(matches):
     S[2] = 0                            #rank 2 constraint
     F = np.dot(U,np.dot(np.diag(S),V))
     
-    F = np.dot(T2.T, np.dot(F, T1))   #This is given in algorithm for normalization
+    # F = np.dot(T2.T, np.dot(F, T1))   #This is given in algorithm for normalization
     F = F / F[2,2]
     
     return F
@@ -61,7 +62,7 @@ def normalize_pts(pts):
 
 
 def parse_matching(file_path, pair):
-    matches = []
+    matches_set = set()
     
     with open(file_path, 'r') as file:
         n_features = int(file.readline().split(":")[1].strip())
@@ -72,28 +73,29 @@ def parse_matching(file_path, pair):
             color = tuple(map(int, parts[1:4]))
             current_image_uv = tuple(map(float, parts[4:6]))
 
-            i = 0
             offset = 6  # Starting offset for match information
-            flag = False
             
             while offset < len(parts):
-                
                 if int(parts[offset]) == pair[1]:
                     pair_uv = (float(parts[offset + 1]), float(parts[offset + 2]))
-                    flag = True
-                    break
                     
+                    # Instead of appending directly to a list, we create a hashable representation
+                    match_tuple = (color, current_image_uv, pair_uv)
+                    
+                    # Add to the set to avoid duplicates
+                    matches_set.add(match_tuple)
+                    break  # Assuming you only want the first match for each feature
                 
                 offset += 3  # Moving to the next match set
-                i += 1
-                if i >= n_matches:  # Break if we've read the number of matches specified for this feature
+                if (offset - 6) // 3 >= n_matches:  # Break if we've read the number of matches specified for this feature
                     break
             
-            
-            if flag:    
-                matches.append({
-                    'color': color,
-                    'image1_uv': current_image_uv,
-                    'image2_uv': pair_uv
-                })
+    # Convert the set of tuples back into a list of dictionaries
+    matches = [{
+        'color': match[0],
+        'image1_uv': match[1],
+        'image2_uv': match[2]
+    } for match in matches_set]
+    
     return matches
+

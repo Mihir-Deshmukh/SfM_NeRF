@@ -2,6 +2,7 @@
 #imports
 import argparse
 import cv2
+import random
 import numpy as np
 import matplotlib.pyplot as plt
 from EstimateFundamentalMatrix import *
@@ -48,8 +49,88 @@ def read_intrinsics(path):
             row = [float(value) for value in values]
             intrinsics.append(row)
         return np.array(intrinsics)
+    
+def get_ransac(dmatches, keypoints1, keypoints2):
 
+    count = []
+    inliers = []
 
+    for _ in range(100): 
+
+        random_pts = random.sample(range(len(dmatches)), 4)
+
+        keypoints1_for_ransac = np.array([keypoints1[keypoint.queryIdx].pt for keypoint in dmatches])
+        keypoints2_for_ransac = np.array([keypoints2[keypoint.trainIdx].pt for keypoint in dmatches])
+
+        points1_for_ransac = keypoints1_for_ransac[random_pts]
+        points2_for_ransac = keypoints2_for_ransac[random_pts]
+
+        if (np.all(points1_for_ransac == points1_for_ransac[0]) or np.all(points2_for_ransac == points2_for_ransac[0]) or len(points1_for_ransac) < 4):
+            # print("points are same")
+            continue
+
+        homography, mask = cv2.findHomography(points1_for_ransac, points2_for_ransac, cv2.RANSAC, 5.0)
+
+        points = []
+        final_keypoint1 = []
+        final_keypoint2 = []
+        count_inliers = 0
+
+        for i in range(len(keypoints1_for_ransac)):
+
+            keypoint1_array = np.array([keypoints1_for_ransac[i][0], keypoints1_for_ransac[i][1], 1])
+            keypoint2_array = np.array([keypoints2_for_ransac[i][0], keypoints2_for_ransac[i][1], 1])
+
+            keypoint1_array_for_homo = [keypoints1_for_ransac[i][0], keypoints1_for_ransac[i][1]]
+            keypoint2_array_for_homo = [keypoints2_for_ransac[i][0], keypoints2_for_ransac[i][1]]
+
+            ssd = np.linalg.norm(np.array(keypoint2_array.T) - np.dot(homography, keypoint1_array.T))
+
+            if ssd < 5:
+                final_keypoint1.append(keypoint1_array_for_homo)
+                final_keypoint2.append(keypoint2_array_for_homo)
+                count_inliers += 1
+
+        count.append(count_inliers)
+        inliers.append((homography, (final_keypoint1, final_keypoint2)))
+
+    max_count_idx = np.argmax(count)
+    final_matched_pairs = inliers[max_count_idx][1]
+
+    return final_matched_pairs
+
+def visualize_matches(img1, img2, matches):
+
+    # keypoints1 = [cv2.KeyPoint(x=float(match['image1_uv'][0]), y=float(match['image1_uv'][1]), size=1) for match in matches]
+    # keypoints2 = [cv2.KeyPoint(x=float(match['image2_uv'][0]), y=float(match['image2_uv'][1]), size=1) for match in matches]
+
+    keypoints1 = matches[0]
+    keypoints2 = matches[1]
+
+    # Create dummy DMatch objects as placeholders to draw matches.
+    # Note: This assumes that matches are ordered and correspond one-to-one.
+    dmatches = [cv2.DMatch(_imgIdx=0, _queryIdx=i, _trainIdx=i, _distance=0) for i in range(len(matches))]
+    
+    # Draw matches
+    img_matches = cv2.drawMatches(img1, keypoints1, img2, keypoints2, dmatches, None, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
+    
+    # Display the matches
+    cv2.imshow("Matches", img_matches)
+
+def convert_to_dmatches(matched_features):
+    matches = [cv2.DMatch(i, i, 2) for i,j in enumerate(matched_features)]
+    return matches
+
+def convert_to_keypoints(corners):
+    keypoints = [cv2.KeyPoint(c[0], c[1], 3) for c in corners]
+    return keypoints
+
+def plotter(image1, keypoints1, image2, keypoints2, dmatches):
+
+    matched_image = cv2.drawMatches(image1, keypoints1, image2, keypoints2, dmatches, None, flags=2)
+
+    plt.imshow(cv2.cvtColor(matched_image, cv2.COLOR_BGR2RGB))
+    plt.show()
 
 def main(args):
     
@@ -65,14 +146,38 @@ def main(args):
     for pair in image_pairs:
         matched_pairs.append(parse_matching(basepath + f'matching{pair[0]}.txt', pair))
         
+    dmatches_before = convert_to_dmatches(matched_pairs[0])
+
+    keypoints1_before = convert_to_keypoints([elem['image1_uv'] for elem in matched_pairs[0]])
+    keypoints2_before = convert_to_keypoints([elem['image2_uv'] for elem in matched_pairs[0]])
+
+    print(len(dmatches_before), len(keypoints1_before), len(keypoints2_before))
+
+    # plotter(images[0], keypoints1, images[1], keypoints2, dmatches)
+
+    matched_pairs_ransac = get_ransac(dmatches_before, keypoints1_before, keypoints2_before)
+
+    dmatches = convert_to_dmatches(matched_pairs_ransac)
+
+    keypoints1 = convert_to_keypoints(matched_pairs_ransac[0])
+    keypoints2 = convert_to_keypoints(matched_pairs_ransac[1])
+
+    print(len(dmatches), len(keypoints1), len(keypoints2))
+
+    plotter(images[0], keypoints1, images[1], keypoints2, dmatches)
+
+    # inliers = get_inlier_RANSAC(matched_pairs[0], 0.01)
+
+    # print(matched_pairs_ransac)
+
+    inliers = get_inlier_RANSAC(matched_pairs_ransac, 30)
+
+    print(inliers)
+
+
+    visualize_matches(images[0], images[1], inliers)
     
-    # Ransac and only send the top 8 feature in the fundamental matrix
-    inliers = get_inlier_RANSAC(matched_pairs[0], 0.01)
-    print(len(inliers))
-    
-    # print(len(matched_pairs[0]))
-    
-    F = estimate_fundamental_matrix(inliers)
+    F = estimate_fundamental_matrix(inliers[0], inliers[1])
 
     image1_uv = np.array([match['image1_uv'] + (1,) for match in matched_pairs[0]])
     image2_uv = np.array([match['image2_uv'] + (1,) for match in matched_pairs[0]])
@@ -82,7 +187,7 @@ def main(args):
     F_, mask = cv2.findFundamentalMat(image1_uv, image2_uv, cv2.FM_RANSAC)
     print(f"Fundamental Matrix(cv2): {F_}")
     print(f"Fundamental Matrix: {F}")
-    print(f"Rank of Fundamental Matrix: {np.linalg.matrix_rank(F_)}")
+    print(f"Rank of Fundamental Matrix: {np.linalg.matrix_rank(F)}")
     
     pts1 = image1_uv[mask.ravel()==1]
     pts2 = image2_uv[mask.ravel()==1]
