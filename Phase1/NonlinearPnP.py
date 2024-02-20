@@ -8,7 +8,7 @@ def NonLinearPnP(points, world_points, R, C, K):
     
     q = Rotation.from_matrix(R).as_quat()
     
-    optim_params = least_squares(fun=reprojection_loss_pnp, x0=np.hstack([C, q]), method="trf", args=[points, world_points, K])
+    optim_params = least_squares(fun=reprojection_loss_pnp, x0=np.hstack([C, q]), method="trf", args=[points, world_points, K], max_nfev=5000)
     params = optim_params.x
     # print(f"Optim params: {optim_params}")
     
