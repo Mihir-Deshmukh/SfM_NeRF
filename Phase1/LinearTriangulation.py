@@ -11,6 +11,13 @@ def make_skew(x):
 
 #     Translation2 = - R2 @ C2
 #     P2 = K @ np.hstack((R2, Translation2))
+#     print(P2)
+    
+    
+#     I = np.identity(3)
+#     P1 = np.dot(K, np.dot(R1, np.hstack((I,-C1))))
+#     P2 = np.dot(K, np.dot(R2, np.hstack((I,-C2))))
+#     print(P2)
     
 #     image1_uv = np.array([match['image1_uv'] + (1,) for match in matched_points])
 #     image2_uv = np.array([match['image2_uv'] + (1,) for match in matched_points])
@@ -26,12 +33,15 @@ def make_skew(x):
 #         U, S, Vt = np.linalg.svd(A)
 #         V = Vt.T
         
-#         world_point = V[:,-1] / V[-1,-1]
+#         world_point = V[:,-1]
 #         # print(world_point)
         
-#         world_points.append(world_point[:3])
-        
-#     return np.array(world_points)
+#         world_points.append(world_point)
+    
+    
+#     X = np.array(world_points)
+#     X = X/X[:,3].reshape(-1,1)   
+#     return X
 
 
 def triangulate_points(R1, C1, R2, C2, matched_points, K):
