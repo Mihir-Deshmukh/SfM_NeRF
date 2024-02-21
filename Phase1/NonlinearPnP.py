@@ -15,7 +15,7 @@ def NonLinearPnP(points, world_points, R, C, K):
     C = params[:3]
     R = Rotation.from_quat(params[3:]).as_matrix()
     
-    return R, C
+    return R, C.reshape(-1,1)
 
 
 def reprojection_loss_pnp(x0, points, world_points, K):
