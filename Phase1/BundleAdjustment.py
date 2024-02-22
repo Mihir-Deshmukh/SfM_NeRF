@@ -61,7 +61,7 @@ def reprojection_error(params, all_points, visibility_matrix, num_cameras, num_p
     
     E1 = np.square(v1 - v1_proj) + np.square(u1 - u1_proj)
 
-    print(f"Error: {E1}")
+    # print(f"Error: {E1}")
     return E1
 
 def bundleAdjustment(all_points, world_points, visibility_matrix, R_All, C_All, num_cameras, intrinsic_matrix):

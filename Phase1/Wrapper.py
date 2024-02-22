@@ -150,6 +150,38 @@ def find_common_points_and_indices(uv_list, images):
     
     return output_features, output_indices
 
+def plotter(image, P_mat, world_points, reprojected_points, pts):
+
+    # print(world_points)
+    # print("reproj", len(reprojected_points))
+
+    image = cv2.cvtColor(image,cv2.COLOR_GRAY2BGR)
+
+    for i in range(len(world_points)):
+
+        p2_1T, p2_2T, p2_3T = P_mat
+        p2_1T, p2_2T, p2_3T = p2_1T.reshape(1,-1), p2_2T.reshape(1,-1), p2_3T.reshape(1,-1)
+
+        pts_1, pts_2 = pts[i][0], pts[i][1]
+
+        # linear reprojection error
+        u2_proj = np.divide(p2_1T.dot(world_points[i]) , p2_3T.dot(world_points[i]))
+        v2_proj =  np.divide(p2_2T.dot(world_points[i]) , p2_3T.dot(world_points[i]))
+
+        # nonlinear reprojection error
+        #u2_proj = np.divide(p2_1T.dot(reprojected_points[i]) , p2_3T.dot(reprojected_points[i]))
+        #v2_proj =  np.divide(p2_2T.dot(reprojected_points[i]) , p2_3T.dot(reprojected_points[i]))
+
+        cv2.circle(image, (int(pts_1), int(pts_2)), 3, [0, 0, 255], -1)
+        cv2.circle(image, (int(u2_proj), int(v2_proj)), 3, [0, 255, 0], -1)
+
+    cv2.imshow('world points', image)
+
+    if cv2.waitKey(0) & 0xff == 27: 
+        cv2.destroyAllWindows() 
+    cv2.waitKey(0)
+
+
 
 def main(args):
     
@@ -309,6 +341,8 @@ def main(args):
         # Annotate camera with label
         correction = -0.1
         ax.annotate(label, xy=(position[0] + correction, position[2] + correction))
+
+    plotter(images[0], P1, correct_worldpoints, reprojected_points, pts1)
 
     # Setting the plot axis limits
     plt.axis([-15, 15, -5, 25])
