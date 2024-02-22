@@ -200,7 +200,7 @@ def main(args):
     # Run RANSAC for each image pair
     for i in range(10):
 
-        inliers = get_inlier_RANSAC(matched_pairs[i], 0.1)
+        inliers = get_inlier_RANSAC(matched_pairs[i], 0.01)
         bestInliers.append(inliers)
         
         print(f"Unique matches in Image pair {image_pairs[i]} after RANSAC:", len(inliers))
@@ -384,18 +384,8 @@ def main(args):
         
         start_imgs.append(i+3)
         common_points, orig_indices = find_common_points_and_indices(aggregated_uv_points, start_imgs)
-        # print(f"aggreated_uv_points: {aggregated_uv_points[orig_indices[0]]}")
-        # print(f"common_points: {common_points[0]}")
-        # for index in orig_indices:
-        #     print(aggregated_uv_points[index])
-            
         print(f"Common features with {start_imgs} images: {len(common_points)}")
-        
-        
-        unique_points, unique_indices = find_exclusive_points(aggregated_uv_points, start_imgs)
-        print(f"Unique features for image {i+3}: {len(unique_points)}")
-        # print("Unique Points: ", unique_points)
-   
+
         indices = np.array(orig_indices)
         relevant_world_points = world_points[indices]
         # print(relevant_world_points)
@@ -411,15 +401,6 @@ def main(args):
         P = get_projectionMatrix(instrinsic_parameters, R_new, C_new)
         print(f"Inliers after PnP RANSAC: {len(new_inliers)}")
         
-        # Linear PnP error
-        # pnpError = []
-        # for i in range(len(relevant_world_points)):
-        #     pnpError.append(reprojection_error_pnp(P, common_points_img[i], relevant_world_points[i]))
-            
-        # print(f"Linear PnP Error: {np.mean(pnpError)}")
-        
-        
-        
         # Non Linear PnP
         R_new, C_new = NonLinearPnP(common_points_img, relevant_world_points, R_new, C_new, instrinsic_parameters)
         print(f"Camera Pose after Non Linear PnP: {R_new}, {C_new}")
@@ -432,9 +413,9 @@ def main(args):
             
         print(f"NonLinear PnP Error: {np.mean(pnpError)}")
         
-        
-        
         # Find the uncommon points between (1, i+3) which are not in the common points and generate world points for them
+        unique_points, unique_indices = find_exclusive_points(aggregated_uv_points, start_imgs)
+        print(f"Unique features for image {i+3}: {len(unique_points)}")
         pts1 = np.array([match['image1_uv'] + (1,) for match in unique_points])
         pts2 = np.array([match[f'image2_uv'] + (1,) for match in unique_points])
         
@@ -453,27 +434,20 @@ def main(args):
     print(f"--------------------------------------PnP Done-------------------------------------------------------")    
     print(f"R_All: {R_All}")
     print(f"C_All: {C_All}")
-    
+
+    print(f"--------------------------------------Building Visibility Matrix-------------------------------------------------------")
     
     number_of_cameras = n_views
     visibility_matrix = build_visibility_matrix(number_of_cameras, aggregated_uv_points)
-    # plt.scatter(world_points[:,0], world_points[:,2], s=2, c='r', label="Before Bundle Adjustment")
-    # plt.axis([-20, 20, -10, 25])
     
-    # plt.show()
-    print(f"{aggregated_uv_points[500]}")
-    print(f"{visibility_matrix[500]}")
-
     print(f"Visibility Matrix: {visibility_matrix.shape} and World Points: {world_points.shape}")
     #Bundle Adjustment
-    print(f"--------------------------------------Bundle Adjustment-------------------------------------------------------")
+    print(f"--------------------------------------Bundle Adjustment (For all cameras)-------------------------------------------------------")
     R_News, C_News, X = bundleAdjustment(aggregated_uv_points, np.array(world_points[:, :3]), visibility_matrix, np.array(R_All), np.array(C_All), number_of_cameras, instrinsic_parameters)
     
-    print(X.shape)
-   
-    
-    print(f"R_News: {R_News}")
-    print(f"C_News: {C_News}")
+    print(f"--------------------------------------Bundle Adjustment (For all cameras) Done-------------------------------------------------------")
+    print(f"R_New: {R_News}")
+    print(f"C_New: {C_News}")
     
     # plot the camera positions and orientations
     fig, ax = plt.subplots()
@@ -495,7 +469,7 @@ def main(args):
     plt.xlabel('X')
     plt.ylabel('Z')
     plt.legend()
-    plt.title("Camera Positions and Orientations after Bundle Adjustment")
+    plt.title("Camera Poses and World Points before and after Bundle Adjustment")
     plt.show()
     
 

@@ -51,9 +51,8 @@ def reprojection_error(params, all_points, visibility_matrix, num_cameras, num_p
     camera_translations = params[num_cameras * 3:num_cameras * 6].reshape((num_cameras, 3))
     world_points = params[num_cameras * 6:].reshape((num_points, 3))
     
-    # error = []
+    error = []
     E1 = 0
-    count = 0
     for point_idx, visibility_row in enumerate(visibility_matrix):
         x0 = np.append(world_points[point_idx], 1)
         # print(visibility_row)
@@ -80,36 +79,28 @@ def reprojection_error(params, all_points, visibility_matrix, num_cameras, num_p
                 u1,v1 = uv[0], uv[1]
                 u1_proj = np.divide(p1_1T.dot(x0) , p1_3T.dot(x0))
                 v1_proj =  np.divide(p1_2T.dot(x0) , p1_3T.dot(x0))
-    
-                E1 += np.square(v1 - v1_proj) + np.square(u1 - u1_proj)
-                count += 1
-                
 
-    print(f"Error: {E1/count}")
-    return E1/count
+                E1x = np.square(v1 - v1_proj)
+                E1y = np.square(u1 - u1_proj)
+                E1 += E1x + E1y
+                error.append(E1x)
+                error.append(E1y)
+    return np.array(error).ravel()
 
 def bundleAdjustment(all_points, world_points, visibility_matrix, R_All, C_All, num_cameras, intrinsic_matrix):
     num_points = len(world_points)
     
-    # Convert R_All, C_All, world_points into a single parameter vector
-    # r to euler
-    # print(R_All[0])
-    
     R_All = [R.from_matrix(r).as_euler('zyx') for r in R_All]
     R_All = np.array(R_All)
-    # print(R.from_euler('zyx', R_All[0], degrees=True).as_matrix())
-    print(world_points.shape)
-    print(R_All.shape)
-    print(C_All.shape)
     
-    initial_params = np.hstack((R_All.flatten(), C_All.flatten(), world_points.flatten()))
+    initial_params = np.hstack((R_All.ravel(), C_All.ravel(), world_points.ravel()))
     print(f"Initial params: {initial_params.shape}")
     # Optimize
     A = bundle_adjustment_sparsity(num_cameras, num_points, visibility_matrix)
-    print(f"Sparsity: {A.shape}")
+    print(f"Sparsity Dim: {A.shape}")
     
     # jac_sparsity=A, 
-    result = least_squares(fun=reprojection_error, x0=initial_params, ftol=1e-7, verbose=2, x_scale='jac', args=(all_points, visibility_matrix, num_cameras, num_points, intrinsic_matrix))
+    result = least_squares(fun=reprojection_error, jac_sparsity=A, method="trf", x0=initial_params, ftol=1e-9, verbose=2, x_scale='jac', args=(all_points, visibility_matrix, num_cameras, num_points, intrinsic_matrix))
     
     # Extract optimized parameters
     optimized_params = result.x

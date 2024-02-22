@@ -13,14 +13,8 @@ def get_inlier_RANSAC(matches, threshold, flag=True):
     
     best_n = 0
     best_inliers = set()
-    
-    if flag:
-        image1_uv = np.array([match['image1_uv'] for match in matches])
-        image2_uv = np.array([match['image2_uv'] for match in matches])
-        F, mask = cv2.findFundamentalMat(image1_uv, image2_uv, cv2.FM_RANSAC)
-        best_matches = np.array(matches)[mask.ravel() == 1]
-        return best_matches
-    
+    image1_uv = np.array([match['image1_uv'] + (1,) for match in matches])
+    image2_uv = np.array([match['image2_uv'] + (1,) for match in matches])
     for i in range(100):
 
         # Select 8 random matches
@@ -43,10 +37,12 @@ def get_inlier_RANSAC(matches, threshold, flag=True):
                 inliers.add(j)
                 
         if len(inliers) > best_n:
-            
             best_n = len(inliers)
             best_inliers = inliers
             best_matches = np.array(matches)[list(best_inliers)]
-
+    
+    if flag:
+        F, mask = cv2.findFundamentalMat(image1_uv, image2_uv, cv2.FM_RANSAC)
+        best_matches = np.array(matches)[mask.ravel() == 1]
     
     return best_matches
