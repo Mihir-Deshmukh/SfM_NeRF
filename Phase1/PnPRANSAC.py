@@ -11,7 +11,7 @@ def get_projectionMatrix(K,R,C):
     projectionMatrix = np.dot(K, np.dot(R, np.hstack((I, -C))))
     return projectionMatrix
 
-def reprojection_error_pnp(P, point, world_point):
+def reprojection_error_pnp(P, point, world_point, flag=False):
     
     x0 = world_point
     p1_1T, p1_2T, p1_3T = P # rows of P
@@ -23,9 +23,12 @@ def reprojection_error_pnp(P, point, world_point):
     
     E1 = np.square(v1 - v1_proj) + np.square(u1 - u1_proj)
     
+    if flag:
+        print(f"u1: {u1}, v1: {v1}, u1_proj: {u1_proj}, v1_proj: {v1_proj}, E1: {E1}")
+    
     return E1
 
-def PnPRANSAC(points, world_points, K, no_of_iterations=1000):
+def PnPRANSAC(points, world_points, K, no_of_iterations=1000, flag=False):
     best_inliers = []
     best_pose = None
     threshold = 10
@@ -55,12 +58,13 @@ def PnPRANSAC(points, world_points, K, no_of_iterations=1000):
         inliers = []
         error = []
         for i in range(len(points)):
-            reprojection_error = reprojection_error_pnp(P, points[i], world_points[i])
+            reprojection_error = reprojection_error_pnp(P, points[i], world_points[i], flag)
             # print(f"reprojection_error: {reprojection_error}")
             error.append(reprojection_error)
             
             if reprojection_error < threshold:
                 inliers.append(i)
+                
 
         # Update best pose and inliers
         if len(inliers) > len(best_inliers):

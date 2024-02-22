@@ -16,6 +16,8 @@ from NonlinearTriangulation import *
 from LinearPnP import *
 from PnPRANSAC import *
 from NonlinearPnP import *
+from BuildVisibilityMatrix import *
+from BundleAdjustment import *
 
 np.random.seed(100)
 
@@ -55,74 +57,98 @@ def read_intrinsics(path):
             row = [float(value) for value in values]
             intrinsics.append(row)
         return np.array(intrinsics)
+
+
+def find_exclusive_points(uv_list, images):
+    """
+    Finds points exclusive to the last image specified, ensuring they do not appear in any other specified images.
     
-    
-def find_common_features(target_images, matched_pairs_list):
-    
-    output_indices = []
-    
-    # Directly return the matches in the specified format if only one pair is provided
-    if len(target_images) == 2 and len(matched_pairs_list) == 1:
-        output_features = [{
-            'image1_uv': match['image1_uv'],
-            f'image{target_images[1]}_uv': match['image2_uv']
-        } for match in matched_pairs_list[0]]
+    :param uv_list: List of dictionaries containing UV coordinates for various images.
+    :param images: List of image numbers including the target for exclusive points.
+    :return: Two lists:
+             - exclusive_features: Dictionaries with points exclusive to the target image.
+             - exclusive_indices: Indices of these exclusive points in the original uv_list.
+    """
+    exclusive_features = []
+    exclusive_indices = []
+
+    # Construct keys for images to check exclusivity against (all except the last one)
+    comparison_keys = [f'image{num}_uv' for num in images[1:-1]]
+    # print(comparison_keys)
+    # Key for the target image
+    target_key = f'image{images[-1]}_uv'
+    origin_key = f'image{images[0]}_uv'
+    # print(target_key)
+    for index, item in enumerate(uv_list):
         
-        output_indices = list(range(len(matched_pairs_list[0])))
-        return output_features, output_indices
+        all_keys = item.keys()
+        flag = True
+        for key in comparison_keys:
+            if key in all_keys:
+                flag = False
+                break
+            
+        # Check if the point exists in the target image and not in any of the comparison images
+        if target_key in item.keys() and flag:
+            exclusive_features.append({'image2_uv': item[target_key], 'image1_uv': item[origin_key]})
+            exclusive_indices.append(index)
 
-    # Initialize a dictionary to store the initial set of common points
-    # using image1_uv from the first pair as the unique key
-    common_features = {}
-    feature_indices = {}
-    for index, match in enumerate(matched_pairs_list[0]):
-        common_features[match['image1_uv']] = {'image1_uv': match['image1_uv'], f'image{target_images[1]}_uv': match['image2_uv']}
-        feature_indices[match['image1_uv']] = [index]  # Initialize list with the index of the match in the first list
+    return exclusive_features, exclusive_indices
 
-    # Iterate over each additional list of matched pairs
-    for i, matches in enumerate(matched_pairs_list[1:], start=1):
-        current_features = {}
-        for j, match in enumerate(matches):
-            if match['image1_uv'] in common_features:
-                new_entry = common_features[match['image1_uv']].copy()
-                new_entry[f'image{target_images[i+1]}_uv'] = match['image2_uv']
-                current_features[match['image1_uv']] = new_entry
-                # Append the index of the match in the current list to the tracking list
-                feature_indices[match['image1_uv']].append(j)
-        common_features = current_features
+def merge_uv_coordinates(image_pairs, list_of_uv_pairs):
+    merged = []
 
-    # Convert the common features dictionary back to a list format as specified
-    output_features = list(common_features.values())
+    # Convert each UV pair to its respective image numbers based on image_pairs
+    for index, uv_pairs in enumerate(list_of_uv_pairs):
+        img1, img2 = image_pairs[index]  # Current image pair
+        for uv_pair in uv_pairs:
+            # Create a new entry for the UV coordinates with their correct image labels
+            new_uv_pair = {
+                f'image{img1}_uv': uv_pair['image1_uv'],
+                f'image{img2}_uv': uv_pair['image2_uv']
+            }
 
-    # For indices, flatten the list of indices for common features
-    output_indices = [indices for key, indices in feature_indices.items() if key in common_features]
+            # Look for an existing entry that these UV coordinates can merge into
+            found = False
+            for existing_uv_pair in merged:
+                # Determine if the current UV pair should merge with the existing one
+                common_images = set(existing_uv_pair.keys()) & set(new_uv_pair.keys())
+                # Proceed with merging only if the UV coordinates match for all common images
+                if common_images and all(existing_uv_pair[img] == new_uv_pair[img] for img in common_images):
+                    # Merge the UV coordinates into the existing entry
+                    existing_uv_pair.update(new_uv_pair)
+                    found = True
+                    break
 
+            # If no suitable existing entry is found, add this as a new entry
+            if not found:
+                merged.append(new_uv_pair)
+
+    return merged
+
+
+def find_common_points_and_indices(uv_list, images):
+    """
+    Finds common points among the specified images and their indices in the uv_list.
+    
+    :param uv_list: List of dictionaries containing UV coordinates for various images.
+    :param images: List of image numbers to find common points for (e.g., [1, 2, 3]).
+    :return: A tuple of two lists: 
+             - output_features: List of dictionaries with common points among the specified images.
+             - output_indices: List of indices for these common points in the uv_list.
+    """
+    output_features = []
+    output_indices = []
+    image_keys = [f'image{image_num}_uv' for image_num in images]
+    # print(image_keys)
+    
+    for index, uv_dict in enumerate(uv_list):
+        if all(key in uv_dict.keys() for key in image_keys):
+            common_uv = {key: uv_dict[key] for key in image_keys}
+            output_features.append(common_uv)
+            output_indices.append(index)
+    
     return output_features, output_indices
-
-
-def find_unique_features_for_target(matched_pairs_target, common_features, target_image_index):
-    # Construct a set of UV coordinates for the target image from the common features
-    target_image_key = f'image{target_image_index}_uv'
-    common_target_uvs = set(feature[target_image_key] for feature in common_features if target_image_key in feature)
-    
-    # Initialize list to hold the unique matches for the target image
-    unique_matches_target = []
-    
-    # Initialize list to hold the indices of the unique matches in the matched_pairs_target list
-    unique_indices_target = []
-    
-    # Iterate through the matched pairs for the target image
-    for index, match in enumerate(matched_pairs_target):
-        # In matched_pairs_target, 'image2_uv' represents the target image's UV coordinates
-        if match['image2_uv'] not in common_target_uvs:
-            # If the UV coordinates are not in the common set, they're unique to the target image
-            unique_matches_target.append(match)
-            unique_indices_target.append(index)
-    
-    return unique_matches_target, unique_indices_target
-
-
-
 
 
 def main(args):
@@ -146,19 +172,27 @@ def main(args):
     # Run RANSAC for each image pair
     for i in range(10):
 
-        # image_idx1 = image_pairs[i][0] - 1
-        # image_idx2 = image_pairs[i][1] - 1
-        # print("all", len(matched_pairs[i]))
-        # inliers_homo = ransac_for_robust_features(matched_pairs[i], images[image_idx1], images[image_idx2])
-
         inliers = get_inlier_RANSAC(matched_pairs[i], 0.1)
         bestInliers.append(inliers)
         
         print(f"Unique matches in Image pair {image_pairs[i]} after RANSAC:", len(inliers))
     
     
+    # Aggregate the UV points
+    aggregated_uv_points = merge_uv_coordinates(image_pairs[0:2], bestInliers[0:2])
+    total_image_uv = sum(len(item) for item in aggregated_uv_points)
+    print(f"Total number of points in all images: {total_image_uv}")
     
-    # Fundamental matrix between Image 1 and Image 2    
+    bestInliers = []
+    bestIndices = []
+    for pair in image_pairs[0:2]:
+        common, indices = find_common_points_and_indices(aggregated_uv_points, pair)
+        bestInliers.append(common)
+        bestIndices.append(indices)
+        print(f"Pair {pair}: {len(common)}")
+        
+    
+    # Fundamental matrix between Image 1 and Image 2
     print("\n----------------------------Finding Fundamental Matrix--------------------------------")
     F = estimate_fundamental_matrix(bestInliers[0])
 
@@ -177,7 +211,7 @@ def main(args):
     pts1 = np.array([match['image1_uv'] for match in bestInliers[0]])
     pts2 = np.array([match['image2_uv'] for match in bestInliers[0]])
     
-    bestInliers[0] = bestInliers[0][mask.ravel()==1]
+    # bestInliers[0] = bestInliers[0][mask.ravel()==1]
    
     
     lines1 = cv2.computeCorrespondEpilines(pts2.reshape(-1,1,2), 2,F)
@@ -192,9 +226,8 @@ def main(args):
     plt.subplot(122),plt.imshow(img3)
     plt.show()
     
-    
     # Get Essential matrix
-    E = get_essential_matrix(F_, instrinsic_parameters)
+    E = get_essential_matrix(F, instrinsic_parameters)
     print(f"Essential Matrix: {E}")
     print(f"Rank of Essential Matrix: {np.linalg.matrix_rank(E)}")
     
@@ -202,13 +235,11 @@ def main(args):
     camera_poses = get_camera_poses(E)
     # print(camera_poses[1])
     
-    
     print(f"\n---------------------------------------Started Linear Triangulation-------------------")
     # Triangulate the points
     R1 = np.eye(3)
     C1 = np.zeros((3,1))
     Triangulated_points = []
-    
 
     for i in range(4):
         points = triangulate_points(R1, C1, camera_poses[i][0], camera_poses[i][1], bestInliers[0], instrinsic_parameters)
@@ -236,7 +267,6 @@ def main(args):
     
     pts1 = np.array([match['image1_uv'] + (1,) for match in bestInliers[0]])
     pts2 = np.array([match['image2_uv'] + (1,) for match in bestInliers[0]])
-    
     
     print(f"---------------------------------------Started Non Linear Triangulation-------------------")
     # Non Linear Triangulation
@@ -305,41 +335,38 @@ def main(args):
     start_imgs = [1,2]
     pnpError = []
     
-    world_points = reprojected_points
-    final_features = []
     
+    world_points = np.zeros((len(aggregated_uv_points), 4))
+    print(f"World Points: {world_points.shape}")
+    
+    for i in range(reprojected_points.shape[0]):
+        world_points[bestIndices[0][i]] = reprojected_points[i]
+        
     # Do this for the remaining images
-    for i in range(3):
+    for i in range(1):
         
         print(f"...................................Image {i+3}...........................................")
         
         start_imgs.append(i+3)
-        common_points, orig_indices = find_common_features(start_imgs, bestInliers[0:i+2])
-        # print(orig_indices)
+        # common_points, orig_indices = find_common_features(start_imgs, bestInliers[0:i+2])
+        # print(common_points)
+        common_points, orig_indices = find_common_points_and_indices(aggregated_uv_points, start_imgs)
+
+        # for index in orig_indices:
+        #     print(aggregated_uv_points[index])
+            
+        print(f"Common features with {start_imgs} images: {len(common_points)}")
         
         
-        matched_pairs_1_to_current = bestInliers[i+1]  # Adjust this based on your data structure
-        unique_features, unique_indices = find_unique_features_for_target(matched_pairs_1_to_current, common_points, i+3)
-        # print(unique_features[0])
+        unique_points, unique_indices = find_exclusive_points(aggregated_uv_points, start_imgs)
+        print(f"Unique features for image {i+3}: {len(unique_points)}")
+        # print("Unique Points: ", unique_points)
         
-        print(f"Unique features for image {i+3}: {len(unique_features)}")
+        # for index in unique_indices:
+        #     print(aggregated_uv_points[index])
         
-        # uncommon_points,  = find_unique_features_for_target(start_imgs, bestInliers, orig_indices)
-        
-        # print(uncommon_points[0])
-        
-        
-        
-        # indices_for_otherset = np.array(orig_indices)[:,1]
-        # print(indices_for_otherset)
-        
-        print(f"Orginal indices: {orig_indices[0]}")
-        print(common_points[0])
-        # uncommon_points = [bestInliers[i+1][j] for j in range(len(bestInliers[i+1])) if j not in indices_for_otherset]
-        # print(uncommon_points[0])
-        
-        
-        indices = np.array(orig_indices)[:,0]
+        # indices = np.array(orig_indices)[:,0]
+        indices = np.array(orig_indices)
         relevant_world_points = world_points[indices]
         # print(relevant_world_points)
         
@@ -347,7 +374,6 @@ def main(args):
         pts1 = [match['image1_uv'] + (1,) for match in common_points]
         P1 = get_projectionMatrix(instrinsic_parameters, np.eye(3), np.zeros((3,1)))
         
-        # print(common_points_img[0])
         print(f"Common features with previous images: {len(common_points_img)}")
         # print(f"relevant_world_points: {len(relevant_world_points)}")
         
@@ -361,59 +387,35 @@ def main(args):
         
         
         # Find the uncommon points between (1, i+3) which are not in the common points and generate world points for them
-        
         # # Non Linear PnP
         R_new, C_new = NonLinearPnP(common_points_img, relevant_world_points, R_new, C_new, instrinsic_parameters)
-        print(f"Camera Pose after Non Linear PnP: {R_new.shape}, {C_new.shape}")
+        print(f"Camera Pose after Non Linear PnP: {R_new}, {C_new}")
         P = get_projectionMatrix(instrinsic_parameters, R_new, C_new)
         
         # # Linear & non linear PnP error
-        pts1 = np.array([match['image1_uv'] + (1,) for match in unique_features])
-        pts2 = np.array([match['image2_uv'] + (1,) for match in unique_features])
+        pts1 = np.array([match['image1_uv'] + (1,) for match in unique_points])
+        pts2 = np.array([match[f'image2_uv'] + (1,) for match in unique_points])
         # print(f"----------------------------------Linear & Non-Linear Triangulation--------------------------------------")
-        points = triangulate_points(R1, C1, R_new, C_new, unique_features, instrinsic_parameters)
+        points = triangulate_points(R1, C1, R_new, C_new, unique_points, instrinsic_parameters)
         reprojected_world_points = NonlinearTriangulation(instrinsic_parameters, R1, C1, R_new, C_new, points, pts1, pts2)
         
-        
-        
-        world_points = np.vstack((world_points, reprojected_world_points))
+        for i in range(reprojected_world_points.shape[0]):
+            world_points[unique_indices[i]] = reprojected_world_points[i]
+        # world_points = np.vstack((world_points, reprojected_world_points))
         print(f"Reprojected World Points: {len(world_points)}")
         
         R_All.append(R_new)
         C_All.append(C_new)
-        
-        # fig, ax = plt.subplots()
-        # plt.scatter(reprojected_world_points[:,0], reprojected_world_points[:,2], s=1, c='b', label="Non-Linear Triangulation")
-        # for i in range(len(R_All)):
-        #     # Convert rotation matrix to Euler angles
-        #     angles = Rotation.from_matrix(R_All[i]).as_euler('XYZ')
-        #     angles_deg = np.rad2deg(angles)
-        #     # print(f"Camera {label} position: {position}, orientation: {angles_deg}")
-            
-        #     ax.plot(C_All[i][0], C_All[i][2], marker=(3, 0, int(angles_deg[1])), markersize=15, linestyle='None', label=f'Camera {i+1}') 
-            
-        #     # Annotate camera with label
-        #     correction = -0.1
-        #     ax.annotate(i+1, xy=(C_All[i][0] + correction, C_All[i][2] + correction))
-        
-        # plt.axis([-15, 15, -5, 25])
-        # plt.xlabel('X')
-        # plt.ylabel('Z')
-        # plt.legend()
-        # plt.title("Camera Positions and Orientations after Non Linear PnP")
-        # plt.show()
-    
-        
-        
+         
         pnpError = []
         
         # NonLinear PnP error
-        # for i in range(len(relevant_world_points)):
-        #     # print(reprojection_error_pnp(P, common_points_img[i], relevant_world_points[i]))
-        #     pnpError.append(reprojection_error_pnp(P, common_points_img[i], relevant_world_points[i]))
-        #     # error.append(reprojection_loss(relevant_world_points[i], P1, P, pts1[i], common_points_img[i]))
+        for i in range(len(relevant_world_points)):
+            # print(reprojection_error_pnp(P, common_points_img[i], relevant_world_points[i]))
+            pnpError.append(reprojection_error_pnp(P, common_points_img[i], relevant_world_points[i]))
+            # error.append(reprojection_loss(relevant_world_points[i], P1, P, pts1[i], common_points_img[i]))
             
-        # print(f"NonLinear PnP Error: {np.mean(pnpError)}")
+        print(f"NonLinear PnP Error: {np.mean(pnpError)}")
         
       
     
@@ -427,7 +429,7 @@ def main(args):
     
     fig, ax = plt.subplots()
     plt.scatter(reprojected_points[:,0], reprojected_points[:,2], s=1, c='b', label="Non-Linear Triangulation")
-    for i in range(5):
+    for i in range(3):
         # Convert rotation matrix to Euler angles
         angles = Rotation.from_matrix(R_All[i]).as_euler('XYZ')
         angles_deg = np.rad2deg(angles)
@@ -446,7 +448,46 @@ def main(args):
     plt.title("Camera Positions and Orientations after Non Linear PnP")
     plt.show()
     
+    
+    
+    All_points = []
+    Universal_world_points = []
+    number_of_cameras = 3
+    visibility_matrix = build_visibility_matrix(number_of_cameras, aggregated_uv_points)
+    
+    print(visibility_matrix.shape)
+    print(world_points)
+
     #Bundle Adjustment
+    print(f"--------------------------------------Bundle Adjustment-------------------------------------------------------")
+    R_All, C_All, reprojected_points = bundleAdjustment(aggregated_uv_points, np.array(world_points[:, :3]), visibility_matrix, np.array(R_All), np.array(C_All), number_of_cameras, instrinsic_parameters)
+    
+    # bundleAdjustment(all_points, world_points, visibility_matrix, R_All, C_All):
+    
+    
+    fig, ax = plt.subplots()
+    plt.scatter(reprojected_points[:,0], reprojected_points[:,2], s=1, c='b', label="Non-Linear Triangulation")
+    for i in range(3):
+        # Convert rotation matrix to Euler angles
+        angles = Rotation.from_matrix(R_All[i]).as_euler('XYZ')
+        angles_deg = np.rad2deg(angles)
+        # print(f"Camera {label} position: {position}, orientation: {angles_deg}")
+        
+        ax.plot(C_All[i][0], C_All[i][2], marker=(3, 0, int(angles_deg[1])), markersize=15, linestyle='None', label=f'Camera {i+1}') 
+        
+        # Annotate camera with label
+        correction = -0.1
+        ax.annotate(i+1, xy=(C_All[i][0] + correction, C_All[i][2] + correction))
+    
+    plt.axis([-15, 15, -5, 25])
+    plt.xlabel('X')
+    plt.ylabel('Z')
+    plt.legend()
+    plt.title("Camera Positions and Orientations after Non Linear PnP")
+    plt.show()
+    
+    
+    
     
     
     
