@@ -16,14 +16,3 @@ def build_visibility_matrix(number_of_cameras, all_points):
             visibility_matrix[point_idx, camera_idx] = 1
             
     return visibility_matrix
-
-# Example usage
-number_of_cameras = 5  # Assuming 5 cameras in this example
-all_points = [
-    {'image1_uv': (100, 120), 'image3_uv': (122, 455)},
-    {'image2_uv': (85, 95), 'image5_uv': (200, 220)},
-    {'image1_uv': (140, 160), 'image4_uv': (180, 195)}
-]
-
-visibility_matrix = build_visibility_matrix(number_of_cameras, all_points)
-print(visibility_matrix)
