@@ -22,20 +22,15 @@ def LinearPnP(points, world_points, K):
     # print(A.shape)
 
     # Perform singular value decomposition (SVD) on A
-    U, S, V = np.linalg.svd(A)
-
-    # Extract the solution from the last column of V
-    P = V[-1].reshape(3, 4)
-    
-    R = P[:, :3]
-    U, D, Vt = np.linalg.svd(R)
-    R = U.dot(Vt)
-    
-    C = P[:, 3]/S[0]
-    C = - np.linalg.inv(R).dot(C)
-    
+    U, D, V = np.linalg.svd(A)
+    P = V[-1, :].reshape(3, 4)
+    temp = np.linalg.inv(K) @ P[:, :3]
+    U_dash, D_dash, V_dash = np.linalg.svd(temp)
+    R = U_dash @ V_dash
+    C = np.linalg.inv(K) @ P[:, 3]/D_dash[0]
     if np.linalg.det(R) < 0:
         R = -R
         C = -C
-        
-    return R, C, P
+    # C=C.reshape(3,1)
+    C = -R.T@C
+    return R, C

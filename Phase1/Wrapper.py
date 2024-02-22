@@ -175,7 +175,6 @@ def plotter(image, P_mat, world_points, pts, title):
 
     if cv2.waitKey(0) & 0xff == 27: 
         cv2.destroyAllWindows() 
-    cv2.waitKey(0)
 
 
 

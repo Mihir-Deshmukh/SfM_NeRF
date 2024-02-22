@@ -50,9 +50,9 @@ def PnPRANSAC(points, world_points, K, no_of_iterations=1000, flag=False):
         
 
         # Estimate pose using Linear PnP
-        R, C, P = LinearPnP(sampled_points, sampled_world_points, K)
-        
-        P_ = get_projectionMatrix(K, R, C)
+        R, C = LinearPnP(sampled_points, sampled_world_points, K)
+        # R, C = linear_pnp(sampled_points[:, :2], sampled_world_points[:, :3], K)
+        P = get_projectionMatrix(K, R, C)
 
         # Calculate reprojection error
         inliers = []
@@ -71,7 +71,8 @@ def PnPRANSAC(points, world_points, K, no_of_iterations=1000, flag=False):
             best_inliers = inliers
             best_pose = (R, C)
             best_error = np.mean(error)
-            
+    
+          
     print(f"LinearPnP Ransac Error: {best_error}")
     return best_pose, best_inliers
 

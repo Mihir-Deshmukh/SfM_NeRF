@@ -109,7 +109,7 @@ def bundleAdjustment(all_points, world_points, visibility_matrix, R_All, C_All, 
     print(f"Sparsity: {A.shape}")
     
     # jac_sparsity=A, 
-    result = least_squares(fun=reprojection_error, jac_sparsity=A, x0=initial_params, ftol=1e-7, verbose=2, x_scale='jac', args=(all_points, visibility_matrix, num_cameras, num_points, intrinsic_matrix))
+    result = least_squares(fun=reprojection_error, x0=initial_params, ftol=1e-7, verbose=2, x_scale='jac', args=(all_points, visibility_matrix, num_cameras, num_points, intrinsic_matrix))
     
     # Extract optimized parameters
     optimized_params = result.x
