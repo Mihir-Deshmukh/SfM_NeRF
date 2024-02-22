@@ -207,7 +207,7 @@ def main(args):
     
     
     # Get Essential matrix
-    E = get_essential_matrix(F_, instrinsic_parameters)
+    E = get_essential_matrix(F, instrinsic_parameters)
     print(f"Essential Matrix: {E}")
     print(f"Rank of Essential Matrix: {np.linalg.matrix_rank(E)}")
     
@@ -227,7 +227,7 @@ def main(args):
         Triangulated_points.append(points)
     
     Triangulated_points = np.array(Triangulated_points)
-    print(Triangulated_points.shape) # (4, n, 3)
+    # print(Triangulated_points.shape) # (4, n, 3)
     
     for i in range(4):
         plt.axis([-20, 20, -20, 20])
