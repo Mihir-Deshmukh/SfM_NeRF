@@ -20,4 +20,4 @@ Implemented
     ```
     python3 /Phase1/Wrapper.py
     ```
-- Results are shown in the report and images are added to /IntermediateOutputImages folder.
+- Results are shown in the report and images are added to /Phase1/IntermediateOutputImages folder.
