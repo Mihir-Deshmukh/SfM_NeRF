@@ -89,7 +89,7 @@ def find_exclusive_points(uv_list, images):
                 break
             
         # Check if the point exists in the target image and not in any of the comparison images
-        if target_key in item.keys() and flag:
+        if (target_key in item.keys()) and (origin_key in item.keys()) and flag:
             exclusive_features.append({'image2_uv': item[target_key], 'image1_uv': item[origin_key]})
             exclusive_indices.append(index)
 
@@ -200,7 +200,7 @@ def main(args):
     # Run RANSAC for each image pair
     for i in range(10):
 
-        inliers = get_inlier_RANSAC(matched_pairs[i], 0.01)
+        inliers = get_inlier_RANSAC(matched_pairs[i], 0.1)
         bestInliers.append(inliers)
         
         print(f"Unique matches in Image pair {image_pairs[i]} after RANSAC:", len(inliers))
@@ -208,6 +208,8 @@ def main(args):
     
     # Aggregate the UV points
     aggregated_uv_points = merge_uv_coordinates(image_pairs[0:n_views-1], bestInliers[0:n_views-1])
+    # aggregated_uv_points = merge_uv_coordinates(image_pairs, bestInliers)
+
     
     total_image_uv = sum(len(item) for item in aggregated_uv_points)
     print(f"Total number of points in all images: {total_image_uv}")
@@ -285,7 +287,6 @@ def main(args):
     for i in range(4):
         plt.axis([-20, 20, -20, 20])
         plt.scatter(Triangulated_points[i,:,0], Triangulated_points[i,:,2], s=1)
-        plt.scatter(camera_poses[i][1][0], camera_poses[i][1][2], c='r', s=4)
         
     plt.title("Linear Triangulation") 
     plt.show()
@@ -408,8 +409,8 @@ def main(args):
         
         # NonLinear PnP error
         pnpError = []
-        for i in range(len(relevant_world_points)):
-            pnpError.append(reprojection_error_pnp(P, common_points_img[i], relevant_world_points[i]))
+        for j in range(len(relevant_world_points)):
+            pnpError.append(reprojection_error_pnp(P, common_points_img[j], relevant_world_points[j]))
             
         print(f"NonLinear PnP Error: {np.mean(pnpError)}")
         
@@ -422,8 +423,8 @@ def main(args):
         points = triangulate_points(R1, C1, R_new, C_new, unique_points, instrinsic_parameters)
         reprojected_world_points = NonlinearTriangulation(instrinsic_parameters, R1, C1, R_new, C_new, points, pts1, pts2)
         
-        for i in range(reprojected_world_points.shape[0]):
-            world_points[unique_indices[i]] = reprojected_world_points[i]
+        for j in range(reprojected_world_points.shape[0]):
+            world_points[unique_indices[j]] = reprojected_world_points[j]
         print(f"Reprojected World Points: {len(world_points)}")
         
         R_All.append(R_new)
