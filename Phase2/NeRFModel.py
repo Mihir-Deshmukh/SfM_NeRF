@@ -51,7 +51,7 @@ import torch.nn.functional as F
     
 
 class TinyNeRFmodel(nn.Module):
-    def __init__(self, embed_pos_L=10, hidden_size=256):
+    def __init__(self, embed_pos_L=10, hidden_size=128):
         super(TinyNeRFmodel, self).__init__()
         #############################
         # network initialization

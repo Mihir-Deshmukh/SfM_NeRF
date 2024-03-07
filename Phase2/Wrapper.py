@@ -58,7 +58,7 @@ def loadDataset(data_path, mode, device):
     # cv2.imshow("image", images[1])
     # cv2.waitKey(0)
 
-    data = np.load("Data/tiny_nerf_data.npz")
+    data = np.load("amdisa_p2/Phase2/Data/tiny_nerf_data.npz")
     images = data["images"][:100]
     poses = data["poses"][:100]
     poses = torch.from_numpy(poses).to(device)
@@ -129,17 +129,17 @@ def render(model, rays_origin, rays_direction, args):
     Outputs:
         rgb values of input rays
     """
-    n_bins = 32
+    n_bins = 64
     t_near = 2
     t_far = 6
     
     t = torch.linspace(t_near, t_far, n_bins)
-    t = t.expand(rays_origin.shape[0], rays_origin.shape[1], n_bins).clone()
+    t = t.expand(rays_origin.shape[0], rays_origin.shape[1], n_bins).clone().to(device)
     # print(f" T Shape: {t.shape}")
     
     random_offsets = torch.rand(*rays_origin.shape[:-1], n_bins) * (t_far - t_near) / n_bins
     # print(f" random_offsets Shape: {random_offsets.shape}")
-    t += random_offsets
+    t += random_offsets.to(device)
     # print(f" T Shape: {t.shape}")
     # print(f" T: {t[0, 0, :]}")
     # print(f" t new shape: {t.unsqueeze(-1).shape}")
@@ -176,7 +176,7 @@ def render(model, rays_origin, rays_direction, args):
     adjusted_alpha = 1.0 - alpha + 1e-10
 
     # Pad the tensor with ones at the beginning of the dimension of interest
-    padded_alpha = torch.cat([torch.ones(*adjusted_alpha.shape[:-1], 1), adjusted_alpha], dim=-1)
+    padded_alpha = torch.cat([torch.ones(*adjusted_alpha.shape[:-1], 1).to(device), adjusted_alpha], dim=-1)
 
     # Perform the cumulative product on the padded tensor
     cumprod_padded = torch.cumprod(padded_alpha, dim=-1)
@@ -238,8 +238,8 @@ def train(images, poses, camera_info, args):
     Loss = []
     Epochs = []
 
-    # for i in range(args.max_iters):
-    for i in range(151):
+    for i in range(args.max_iters):
+    # for i in range(400):
         print(f" Iteration: {i}")
 
         random_idx = random.randint(0, images.shape[0]-1)
@@ -252,7 +252,7 @@ def train(images, poses, camera_info, args):
         # print(f" Ray direction: {rays_direction.shape}, Ray origin shape: {rays_origin.shape}")
         # visualize_rays(rays_direction, rays_origin)
         rgb_pred = render(model, rays_origin, rays_direction, args)
-        print(f" RGB shape: {rgb_pred.shape}")
+        # print(f" RGB shape: {rgb_pred.shape}")
         
         current_loss = loss(img, rgb_pred)
         
@@ -262,7 +262,7 @@ def train(images, poses, camera_info, args):
         
         Loss.append(current_loss.item())
         
-        if i % 20 == 0:
+        if i % 200 == 0:
             print(f" Iteration: {i}, Loss: {current_loss}")
             plt.imshow(rgb_pred.cpu().detach().numpy())
             plt.show()
