@@ -65,14 +65,16 @@ def loadDataset(data_path, mode, device):
     focal =  data["focal"]
     focal = torch.from_numpy(focal)
     # print(images.shape)
-    # plt.imshow(images[1])
-    # plt.show()
+    plt.imshow(data["images"][100])
+    plt.show()
 
     H, W = images.shape[1:3]
+    test_poses = data["poses"][100:]
+    test_poses = torch.from_numpy(test_poses).to(device)
  
     images = torch.from_numpy(images).to(device)
     camera_info = (H, W, focal)
-    return camera_info, images, poses
+    return camera_info, images, poses, test_poses
 
 def PixelToRay(camera_info, pose):
     """
@@ -241,6 +243,7 @@ def train(images, poses, camera_info, args):
     for i in range(args.max_iters):
     # for i in range(400):
         print(f" Iteration: {i}")
+        model.train()
 
         random_idx = random.randint(0, images.shape[0]-1)
         img = images[random_idx]
@@ -251,10 +254,11 @@ def train(images, poses, camera_info, args):
         
         # print(f" Ray direction: {rays_direction.shape}, Ray origin shape: {rays_origin.shape}")
         # visualize_rays(rays_direction, rays_origin)
-        rgb_pred = render(model, rays_origin, rays_direction, args)
+
+        rgb_pred = render(model, rays_origin[25:65, 25:65, :], rays_direction[25:65, 25:65, :], args)
         # print(f" RGB shape: {rgb_pred.shape}")
         
-        current_loss = loss(img, rgb_pred)
+        current_loss = loss(img[25:65, 25:65, :], rgb_pred)
         
         optimiser.zero_grad()
         current_loss.backward()
@@ -262,10 +266,39 @@ def train(images, poses, camera_info, args):
         
         Loss.append(current_loss.item())
         
-        if i % 200 == 0:
+        if i % 500 == 0:
             print(f" Iteration: {i}, Loss: {current_loss}")
-            plt.imshow(rgb_pred.cpu().detach().numpy())
+            model.eval()
+            rays_direction, rays_origin = PixelToRay(camera_info, test_pose)
+            patch_image = render(model, rays_origin[30:70, 0:40, :], rays_direction[30:70, 0:40, :], args)
+            final_image = patch_image.cpu().detach().numpy()
+            rgb_pred_test = []
+
+            image_size = 100  # Define the full image size
+            patch_size = 25  # Define the patch size
+            # patch_image_np = patch_image.cpu().detach().numpy()
+
+            # Initialize the final image array
+            # final_image = np.zeros((image_size, image_size, 3))  # Adjust the shape as necessary, assuming an RGB image
+
+            # for i in range(0, image_size, patch_size):  # Loop over rows
+            #     for j in range(0, image_size, patch_size):  # Loop over columns
+            #         # Extract the patch for the current position
+            #         rays_origin_patch = rays_origin[i:i+patch_size, j:j+patch_size, :]
+            #         rays_direction_patch = rays_direction[i:i+patch_size, j:j+patch_size, :]
+                    
+            #         # Render the current patch
+            #         patch_image = render(model, rays_origin_patch, rays_direction_patch, args)
+                    
+            #         # Transfer the patch image from GPU to CPU and convert to NumPy if necessary
+            #         patch_image_np = patch_image.cpu().detach().numpy()
+                    
+            #         # Directly place the patch in the final image
+            #         final_image[i:i+patch_size, j:j+patch_size, :] = patch_image_np
+            
+            plt.imshow(final_image)
             plt.show()
+
 
         
 
@@ -278,9 +311,10 @@ def main(args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     print("Loading data...")
-    camera_info, images, poses = loadDataset(args.data_path, args.mode, device)
+    camera_info, images, poses, test_poses = loadDataset(args.data_path, args.mode, device)
     print("Data loaded")
-
+    global test_pose 
+    test_pose = test_poses[0]
     if args.mode == 'train':
         print("Start training")
         train(images, poses, camera_info, args)
