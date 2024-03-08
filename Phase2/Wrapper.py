@@ -15,6 +15,7 @@ from NeRFModel import *
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 np.random.seed(0)
+torch.random.manual_seed(0)
 
 def loadDataset(data_path, mode, device):
     """
@@ -58,8 +59,10 @@ def loadDataset(data_path, mode, device):
     # cv2.imshow("image", images[1])
     # cv2.waitKey(0)
 
-    data = np.load("amdisa_p2/Phase2/Data/tiny_nerf_data.npz")
+    data = np.load("Phase2/Data/tiny_nerf_data.npz")
     images = data["images"][:100]
+    test_images = data["images"][100:]
+    
     poses = data["poses"][:100]
     poses = torch.from_numpy(poses).to(device)
     focal =  data["focal"]
@@ -73,8 +76,9 @@ def loadDataset(data_path, mode, device):
     test_poses = torch.from_numpy(test_poses).to(device)
  
     images = torch.from_numpy(images).to(device)
+    test_images = torch.from_numpy(test_images).to(device)
     camera_info = (H, W, focal)
-    return camera_info, images, poses, test_poses
+    return camera_info, images, poses, test_poses, test_images
 
 def PixelToRay(camera_info, pose):
     """
@@ -109,7 +113,7 @@ def PixelToRay(camera_info, pose):
 
     return ray_direction, ray_origin
 
-def generateBatch(images, poses, camera_info, args):
+def generateBatch(ray_origins, ray_directions, gt_colors, args, train=True):
     """
     Input:
         images: all images in dataset
@@ -117,10 +121,51 @@ def generateBatch(images, poses, camera_info, args):
         camera_info: image width, height, camera matrix
         args: get batch size related information
     Outputs:
-        A set of rays
+        A set of rays origins, directions and gt colors
     """
+    if train:
+        indices = np.random.choice(ray_origins.shape[0], 4096, replace=False)
+        sample_rays_o = ray_origins[indices].to(device)
+        sample_rays_d = ray_directions[indices].to(device)
+        sample_colors = gt_colors[indices].to(device)
+    else:
+        sample_rays_o = ray_origins.to(device)
+        sample_rays_d = ray_directions.to(device)
+        sample_colors = gt_colors.to(device)
+    
+    return sample_rays_o, sample_rays_d, sample_colors
 
+def generateRays_and_gt(images, poses, camera_info, args):
+    """
+    Input:
+        images: all images in dataset
+        poses: corresponding camera pose in world frame
+        camera_info: image width, height, camera matrix
+        args: get batch size related information
+    Outputs:
+        A set of rays origins, directions and gt colors
+    """
+    all_rays_o = []
+    all_rays_d = []
+    all_colors = []
 
+    H, W, focal = camera_info
+
+    for i in range(images.shape[0]):
+        img = images[i]
+        pose = poses[i]
+
+        rays_o, rays_d = PixelToRay(camera_info, pose)
+        all_rays_o.append(rays_o.view(-1, 3))
+        all_rays_d.append(rays_d.view(-1, 3))
+        all_colors.append(img.view(-1, 3))
+
+    all_rays_o = torch.cat(all_rays_o, dim=0)
+    all_rays_d = torch.cat(all_rays_d, dim=0)
+    all_colors = torch.cat(all_colors, dim=0)
+
+    return all_rays_o, all_rays_d, all_colors
+    
 
 def render(model, rays_origin, rays_direction, args):
     """
@@ -136,28 +181,19 @@ def render(model, rays_origin, rays_direction, args):
     t_far = 6
     
     t = torch.linspace(t_near, t_far, n_bins)
-    t = t.expand(rays_origin.shape[0], rays_origin.shape[1], n_bins).clone().to(device)
-    # print(f" T Shape: {t.shape}")
+    t = t.expand(rays_origin.shape[0], n_bins).clone().to(device)
     
     random_offsets = torch.rand(*rays_origin.shape[:-1], n_bins) * (t_far - t_near) / n_bins
-    # print(f" random_offsets Shape: {random_offsets.shape}")
     t += random_offsets.to(device)
-    # print(f" T Shape: {t.shape}")
-    # print(f" T: {t[0, 0, :]}")
-    # print(f" t new shape: {t.unsqueeze(-1).shape}")
-    query_input = rays_origin.unsqueeze(2) + rays_direction.unsqueeze(2) * t.unsqueeze(-1)
-    # print(f" Input shape: {query_input.shape}")
-    
-    # colors, sigma = model(query_input, rays_direction)
+
+    query_input = rays_origin.unsqueeze(1) + rays_direction.unsqueeze(1) * t.unsqueeze(-1)
     flattened_query_input = query_input.view(-1, 3)
+    
+    # rays_direction = rays_direction.expand(n_bins, rays_direction.shape[0], 3).transpose(0, 1).reshape(-1, 3)
+    
     colors, sigma = model(flattened_query_input)
     colors = colors.view(*query_input.shape[:-1], 3)
     sigma = sigma.view(*query_input.shape[:-1])
-    
-    # colors = torch.rand(*query_input.shape)   
-    # sigma = torch.rand(*t.shape)
-    # print(f" Sigma shape: {sigma.shape}")
-    # print(f" Colors shape: {colors.shape}")
     
     # Use Volume rendering to get the final image
     dists = torch.zeros_like(t)
@@ -173,7 +209,6 @@ def render(model, rays_origin, rays_direction, args):
     alpha = 1.0 - torch.exp(-sigma * dists)
     # print(f" Alpha shape: {alpha.shape}")
     
-    
     # Compute weights for RGB and depth accumulation
     adjusted_alpha = 1.0 - alpha + 1e-10
 
@@ -188,10 +223,9 @@ def render(model, rays_origin, rays_direction, args):
     
     weights = alpha * T
 
-    
+    # print(f" Weights shape: {weights.shape}")
     # Compute weighted sum of colors to get RGB map
     rgb_map = torch.sum(weights.unsqueeze(-1) * colors, dim=-2)
-    # print(f" RGB shape: {rgb_map.shape}")
     
     # Compute weighted sum of z values to get depth map
     depth_map = torch.sum(weights * t, dim=-1)
@@ -233,32 +267,30 @@ def loss(groundtruth, prediction):
 
 def train(images, poses, camera_info, args):
 
-    # model = NeRFmodel().to(device)
+    # model = NerfModel().to(device)
     model = TinyNeRFmodel().to(device)
     optimiser = torch.optim.Adam(model.parameters(), lr=args.lrate)
 
     Loss = []
     Epochs = []
+    
+    # read all images, poses and generate rays and gt colors
+    ray_origins, ray_directions, gt_colors = generateRays_and_gt(images, poses, camera_info, args)
+    print(f" Ray Origins: {ray_origins.shape}")
+    print(f" Ray Directions: {ray_directions.shape}")
+    print(f" GT Colors: {gt_colors.shape}")
 
+    best_loss = float('inf')
     for i in range(args.max_iters):
-    # for i in range(400):
         print(f" Iteration: {i}")
         model.train()
-
-        random_idx = random.randint(0, images.shape[0]-1)
-        img = images[random_idx]
-        pose = poses[random_idx]
-       
-        rays_direction, rays_origin = PixelToRay(camera_info, pose)
-       
         
-        # print(f" Ray direction: {rays_direction.shape}, Ray origin shape: {rays_origin.shape}")
-        # visualize_rays(rays_direction, rays_origin)
-
-        rgb_pred = render(model, rays_origin[25:65, 25:65, :], rays_direction[25:65, 25:65, :], args)
+        batch_ray_origins, batch_ray_directions, batch_gt_colors = generateBatch(ray_origins, ray_directions, gt_colors, args)
+        # print(f"gt_colors shape: {batch_gt_colors.shape}")
+        rgb_pred = render(model, batch_ray_origins, batch_ray_directions, args)
         # print(f" RGB shape: {rgb_pred.shape}")
         
-        current_loss = loss(img[25:65, 25:65, :], rgb_pred)
+        current_loss = loss(batch_gt_colors, rgb_pred)
         
         optimiser.zero_grad()
         current_loss.backward()
@@ -266,41 +298,44 @@ def train(images, poses, camera_info, args):
         
         Loss.append(current_loss.item())
         
-        if i % 500 == 0:
-            print(f" Iteration: {i}, Loss: {current_loss}")
-            model.eval()
-            rays_direction, rays_origin = PixelToRay(camera_info, test_pose)
-            patch_image = render(model, rays_origin[30:70, 0:40, :], rays_direction[30:70, 0:40, :], args)
-            final_image = patch_image.cpu().detach().numpy()
-            rgb_pred_test = []
-
-            image_size = 100  # Define the full image size
-            patch_size = 25  # Define the patch size
-            # patch_image_np = patch_image.cpu().detach().numpy()
-
-            # Initialize the final image array
-            # final_image = np.zeros((image_size, image_size, 3))  # Adjust the shape as necessary, assuming an RGB image
-
-            # for i in range(0, image_size, patch_size):  # Loop over rows
-            #     for j in range(0, image_size, patch_size):  # Loop over columns
-            #         # Extract the patch for the current position
-            #         rays_origin_patch = rays_origin[i:i+patch_size, j:j+patch_size, :]
-            #         rays_direction_patch = rays_direction[i:i+patch_size, j:j+patch_size, :]
-                    
-            #         # Render the current patch
-            #         patch_image = render(model, rays_origin_patch, rays_direction_patch, args)
-                    
-            #         # Transfer the patch image from GPU to CPU and convert to NumPy if necessary
-            #         patch_image_np = patch_image.cpu().detach().numpy()
-                    
-            #         # Directly place the patch in the final image
-            #         final_image[i:i+patch_size, j:j+patch_size, :] = patch_image_np
+        if i % 50 == 0:
             
-            plt.imshow(final_image)
+            if current_loss.item() < best_loss:
+                best_loss = current_loss
+                print(f"Saving model at iteration: {i}")
+                torch.save(model.state_dict(), f"{args.checkpoint_path}/model_{i}.pt")
+            
+            
+            print(f" Iteration: {i}, Loss: {current_loss}")
+            
+            
+            # model.eval()
+            test_ray_origins, test_ray_directions, test_gt  = generateRays_and_gt(test_images, test_poses, camera_info, args)
+            
+            rgb_pred_test = []
+            for i in range(10):
+                index_1 = i * 1000
+                index_2 = (i+1) * 1000
+                pred = render(model, test_ray_origins[index_1:index_2], test_ray_directions[index_1:index_2], args)
+                rgb_pred_test.append(pred)
+                
+            rgb_pred_test = torch.cat(rgb_pred_test, dim=0)
+            pred_image = rgb_pred_test.view(100, 100, 3).cpu().detach().numpy()
+            gt_image = test_gt[0:10000].view(100, 100, 3).cpu().detach().numpy()
+         
+            # Plotting the original vs predicted images
+            fig, ax = plt.subplots(1, 2, figsize=(10, 5))
+            
+            ax[0].imshow(gt_image)
+            ax[0].set_title("Original Test Image")
+            ax[0].axis('off')  # Hide axes ticks
+            
+            ax[1].imshow(pred_image)
+            ax[1].set_title("Predicted Test Image")
+            ax[1].axis('off')  # Hide axes ticks
+
             plt.show()
 
-
-        
 
 # def test(images, poses, camera_info, args):
 
@@ -311,10 +346,10 @@ def main(args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     print("Loading data...")
-    camera_info, images, poses, test_poses = loadDataset(args.data_path, args.mode, device)
+    global test_poses, test_images
+    camera_info, images, poses, test_poses, test_images = loadDataset(args.data_path, args.mode, device)
     print("Data loaded")
-    global test_pose 
-    test_pose = test_poses[0]
+
     if args.mode == 'train':
         print("Start training")
         train(images, poses, camera_info, args)
@@ -334,7 +369,7 @@ def configParser():
     parser.add_argument('--n_sample',default=400,help="number of sample per ray")
     parser.add_argument('--max_iters',default=10000,help="number of max iterations for training")
     parser.add_argument('--logs_path',default="./logs/",help="logs path")
-    parser.add_argument('--checkpoint_path',default="./Phase2/example_checkpoint/",help="checkpoints path")
+    parser.add_argument('--checkpoint_path',default="Phase2/Output/checkpoint",help="checkpoints path")
     parser.add_argument('--load_checkpoint',default=True,help="whether to load checkpoint or not")
     parser.add_argument('--save_ckpt_iter',default=1000,help="num of iteration to save checkpoint")
     parser.add_argument('--images_path', default="./image/",help="folder to store images")
