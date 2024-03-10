@@ -17,18 +17,6 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 np.random.seed(0)
 torch.random.manual_seed(0)
 
-def meshgrid_xy(tensor1: torch.Tensor, tensor2: torch.Tensor) -> (torch.Tensor, torch.Tensor):
-    """Mimick np.meshgrid(..., indexing="xy") in pytorch. torch.meshgrid only allows "ij" indexing.
-    (If you're unsure what this means, safely skip trying to understand this, and run a tiny example!)
-    
-    Args:
-      tensor1 (torch.Tensor): Tensor whose elements define the first dimension of the returned meshgrid.
-      tensor2 (torch.Tensor): Tensor whose elements define the second dimension of the returned meshgrid.
-    """
-    # TESTED
-    ii, jj = torch.meshgrid(tensor1, tensor2)
-    return ii.transpose(-1, -2), jj.transpose(-1, -2)
-
 def loadDataset(data_path, mode, device):
     """
     Input:
@@ -104,31 +92,24 @@ def PixelToRay(camera_info, pose):
         ray origin and direction
     """
     H, W, focal = camera_info
-    ii, jj = meshgrid_xy(
-    torch.arange(W).to(pose),
-    torch.arange(H).to(pose))
-    #   print(ii.shape, jj.shape)
-    #   print(ii[0], jj[0])
+
+    mesh_x, mesh_y = torch.meshgrid(torch.linspace(0, W-1, W).to(pose), torch.linspace(0, H-1, H).to(pose), indexing='ij')
+
+    mesh_x = mesh_x.T
+    mesh_y = mesh_y.T
+
+    x = (mesh_x - W/2) / focal
+    y = (mesh_y - H/2) / focal
     
-    directions = torch.stack([(ii - W * .5) / focal,
-                            -(jj - H * .5) / focal,
-                            -torch.ones_like(ii)
-                           ], dim=-1)
-    ray_direction = torch.sum(directions[..., None, :] * pose[:3, :3], dim=-1)
-    ray_origin = pose[:3, -1].expand(ray_direction.shape)
+    directions = torch.stack((x, -y, -torch.ones_like(x)), dim=-1)
+    directions = directions[..., np.newaxis, :]
     
-    # x = (ii - W/2) / focal
-    # y = (jj - H/2) / focal
+    rotation = pose[:3, :3]
+    translation = pose[:3, -1].view(1, 1, 3)
     
-    # directions = torch.stack((x, -y, -torch.ones_like(x)), dim=-1)
-    # directions = directions[..., np.newaxis, :]
-    
-    # rotation = pose[:3, :3]
-    # translation = pose[:3, -1].view(1, 1, 3)
-    
-    # ray_direction = torch.sum(directions*rotation, dim=-1)
-    # ray_direction = ray_direction/torch.linalg.norm(ray_direction, axis=-1, keepdim=True)
-    # ray_origin = translation.expand(ray_direction.shape[0], ray_direction.shape[1], -1)
+    ray_direction = torch.sum(directions*rotation, dim=-1)
+    ray_direction = ray_direction/torch.linalg.norm(ray_direction, axis=-1, keepdim=True)
+    ray_origin = translation.expand(ray_direction.shape[0], ray_direction.shape[1], -1)
 
     return ray_direction, ray_origin
 
@@ -191,7 +172,7 @@ def compute_accumulated_transmittance(alphas):
                       accumulated_transmittance[:, :-1]), dim=-1)
 
 
-def render_rays(nerf_model, ray_origins, ray_directions, hn=2, hf=6, nb_bins=128):
+def render_rays(nerf_model, ray_origins, ray_directions, hn=2, hf=6, nb_bins=192):
     device = ray_origins.device
     
     t = torch.linspace(hn, hf, nb_bins, device=device).expand(ray_origins.shape[0], nb_bins)
@@ -356,7 +337,7 @@ def train(images, poses, camera_info, args):
         
         Loss.append(current_loss.item())
         
-        if i%100 == 0:
+        if i%300 == 0:
             
             if current_loss.item() < best_loss:
                 best_loss = current_loss
