@@ -354,8 +354,8 @@ def render(model, rays_origin, rays_direction, args):
     
     rays_direction = rays_direction.expand(n_bins, rays_direction.shape[0], 3).transpose(0, 1).reshape(-1, 3)
     
-    colors, sigma = model(flattened_query_input)
-    # colors, sigma = model(flattened_query_input, rays_direction)
+    # colors, sigma = model(flattened_query_input)
+    colors, sigma = model(flattened_query_input, rays_direction)
 
     colors = colors.view(*query_input.shape[:-1], 3)
     sigma = sigma.view(*query_input.shape[:-1])
@@ -432,10 +432,10 @@ def loss(groundtruth, prediction):
 
 def train(images, poses, camera_info, args):
 
-    # model = NerfModel().to(device)
+    model = NerfModel().to(device)
     # model = VeryTinyNerfModel().to(device)
     # model.load_state_dict(torch.load("Output/checkpoint/model_500.pt", map_location=device))
-    model = TinyNeRFmodel().to(device)
+    # model = TinyNeRFmodel().to(device)
     optimiser = torch.optim.Adam(model.parameters(), lr=args.lrate)
     scaler = GradScaler()
     
@@ -551,7 +551,7 @@ def configParser():
     parser.add_argument('--n_dirc_freq',default=4,help="number of positional encoding frequencies for viewing direction")
     parser.add_argument('--n_rays_batch',default=32*32*4,help="number of rays per batch")
     parser.add_argument('--n_sample',default=192,help="number of sample per ray")
-    parser.add_argument('--max_iters',default=30000,help="number of max iterations for training")
+    parser.add_argument('--max_iters',default=10000,help="number of max iterations for training")
     parser.add_argument('--logs_path',default="./logs/",help="logs path")
     parser.add_argument('--checkpoint_path',default="Phase2/Output/checkpoint",help="checkpoints path")
     parser.add_argument('--load_checkpoint',default=True,help="whether to load checkpoint or not")
