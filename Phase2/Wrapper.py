@@ -10,6 +10,8 @@ import os
 import cv2
 import numpy as np
 import json
+from torch.cuda.amp import autocast
+from torch.cuda.amp import GradScaler
 
 from NeRFModel import *
 
@@ -17,69 +19,193 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 np.random.seed(0)
 torch.random.manual_seed(0)
 
-def loadDataset(data_path, mode, device):
-    """
-    Input:
-        data_path: dataset path
-        mode: train or test
-    Outputs:
-        camera_info: image width, height, camera matrix 
-        images: images
-        pose: corresponding camera pose in world frame
-    """
-    # with open(data_path, 'r') as file:
-    #     data = json.load(file)
+# def loadDataset(data_path, mode, device):
+#     """
+#     Input:
+#         data_path: dataset path
+#         mode: train or test
+#     Outputs:
+#         camera_info: image width, height, camera matrix 
+#         images: images
+#         pose: corresponding camera pose in world frame
+#     """
+#     with open(data_path, 'r') as file:
+#         data = json.load(file)
 
-    # # Accessing data
-    # camera_angle_x = data['camera_angle_x']
-    # frames = data['frames']
+#     # Accessing data
+#     camera_angle_x = data['camera_angle_x']
+#     frames = data['frames']
 
-    # file_paths = []
-    # rotations = []
-    # poses = []
+#     file_paths = []
+#     rotations = []
+#     poses = []
 
-    # # Example of accessing specific information
-    # for frame in frames:
+#     # Example of accessing specific information
+#     for frame in frames:
 
-    #     file_path = frame['file_path']
-    #     rotation = frame['rotation']
-    #     transform_matrix = frame['transform_matrix']
+#         file_path = frame['file_path']
+#         rotation = frame['rotation']
+#         transform_matrix = frame['transform_matrix']
 
-    #     file_paths.append(file_path)
-    #     rotations.append(rotation)
-    #     poses.append(transform_matrix)
+#         file_paths.append(file_path)
+#         rotations.append(rotation)
+#         poses.append(transform_matrix)
 
-    # image_path = "Phase2/Data/lego/lego/train"
-    # images = []
+#     test_data_path = "Phase2/Data/lego/lego/transforms_test.json"
+#     with open(test_data_path, 'r') as file:
+#         test_data = json.load(file)
 
-    # for i in range(len(os.listdir(image_path))):
-    #     img = cv2.imread(os.path.join(image_path, f"r_{i}.png"))
-    #     images.append(img)
-        
-    # cv2.imshow("image", images[1])
-    # cv2.waitKey(0)
+#     # Accessing data
+#     test_camera_angle_x = test_data['camera_angle_x']
+#     test_frames = test_data['frames']
 
-    data = np.load("Phase2/Data/tiny_nerf_data.npz")
-    images = data["images"][:100]
-    test_images = data["images"][100:]
+#     test_file_paths = []
+#     test_rotations = []
+#     test_poses = []
+
+#     # Example of accessing specific information
+#     for frame in test_frames:
+
+#         test_file_path = frame['file_path']
+#         test_rotation = frame['rotation']
+#         test_transform_matrix = frame['transform_matrix']
+
+#         test_file_paths.append(test_file_path)
+#         test_rotations.append(test_rotation)
+#         test_poses.append(test_transform_matrix)
+
+#     image_path = "Phase2/Data/lego/lego/train"
+#     test_image_path = "Phase2/Data/lego/lego/test"
+
+#     images = []
+
+#     for i in range(len(os.listdir(image_path))):
+#         img = cv2.imread(os.path.join(image_path, f"r_{i}.png"))
+#         images.append(img)
+
+#     test_images = []
+
+#     for i in range(len(os.listdir(test_image_path))):
+#         img = cv2.imread(os.path.join(test_image_path, f"r_{i}.png"))
+#         test_images.append(img)
+
+#     cv2.imshow("image", test_images[1])
+#     cv2.waitKey(0)
+
+#     images = np.array(images)
+#     # print(len(test_images))
+#     # test_images = np.array(test_images)
+#     poses = np.array(poses)
+#     test_poses = np.array(test_poses)
+
+#     images = torch.from_numpy(images).to(device)
+#     test_images = torch.from_numpy(test_images).to(device)
+#     poses = torch.from_numpy(poses).to(device)
+#     test_poses = torch.from_numpy(test_poses).to(device)
+
+#     H, W = images[0].shape[0], images[0].shape[1]
+#     focal = 0.5 * W / np.tan(0.5 * camera_angle_x)
+
+#     camera_info = (H, W, focal)
+
+#     # data = np.load("Phase2/Data/tiny_nerf_data.npz")
+#     # images = data["images"][:100]
+#     # test_images = data["images"][100:]
     
-    poses = data["poses"][:100]
-    poses = torch.from_numpy(poses).to(device)
-    focal =  data["focal"]
-    focal = torch.from_numpy(focal)
-    # print(images.shape)
-    plt.imshow(data["images"][100])
+#     # poses = data["poses"][:100]
+#     # poses = torch.from_numpy(poses).to(device)
+#     # focal =  data["focal"]
+#     # focal = torch.from_numpy(focal)
+#     # # print(images.shape)
+#     # plt.imshow(data["images"][100])
+#     # plt.show()
+
+#     # H, W = images.shape[1:3]
+#     # test_poses = data["poses"][100:]
+#     # test_poses = torch.from_numpy(test_poses).to(device)
+ 
+#     # images = torch.from_numpy(images).to(device)
+#     # test_images = torch.from_numpy(test_images).to(device)
+#     # camera_info = (H, W, focal)
+#     return camera_info, images, poses, test_poses, test_images
+
+
+def load_images(image_dir):
+    images = []
+    for i, filename in enumerate(os.listdir(image_dir)):
+        img_path = os.path.join(image_dir, f"r_{i}.png")
+        img = cv2.imread(img_path) 
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        img = cv2.resize(img, (400, 400)) / 255
+        images.append(img)
+        if i == 199:
+            break
+
+    return images
+
+def loadDataset(data_path, mode, device):
+    with open(data_path, 'r') as file:
+        data = json.load(file)
+
+    camera_angle_x = data['camera_angle_x']
+    frames = data['frames']
+    
+    file_paths = []
+    rotations = []
+    poses = []
+
+    for frame in frames:
+        file_paths.append(frame['file_path'])
+        rotations.append(frame['rotation'])
+        poses.append(frame['transform_matrix'])
+    
+    image_dir = os.path.join(os.path.dirname(data_path), 'train')
+    images = load_images(image_dir)
+    images = np.array(images, dtype=np.float32)
+
+    # plot image
+    plt.imshow(images[0])
     plt.show()
 
-    H, W = images.shape[1:3]
-    test_poses = data["poses"][100:]
-    test_poses = torch.from_numpy(test_poses).to(device)
- 
     images = torch.from_numpy(images).to(device)
-    test_images = torch.from_numpy(test_images).to(device)
-    camera_info = (H, W, focal)
-    return camera_info, images, poses, test_poses, test_images
 
+    poses = np.array(poses, dtype=np.float32)
+    poses = torch.from_numpy(poses).to(device)
+
+    H, W = images[0].shape[0], images[0].shape[1]
+    focal = 0.5 * W / np.tan(0.5 * camera_angle_x)
+
+    camera_info = (H, W, focal)
+
+    test_data_path = "Phase2/Data/lego/lego/transforms_test.json"
+    #os.path.join(os.path.dirname(data_path), 'test', 'transforms_test.json')
+    with open(test_data_path, 'r') as file:
+        test_data = json.load(file)
+
+    test_frames = test_data['frames']
+    test_file_paths = []
+    test_rotations = []
+    test_poses = []
+
+    for frame in test_frames:
+        test_file_paths.append(frame['file_path'])
+        test_rotations.append(frame['rotation'])
+        test_poses.append(frame['transform_matrix'])
+
+    test_image_dir = os.path.join(os.path.dirname(data_path), 'test')
+    test_images = load_images(test_image_dir)
+    test_images = np.array(test_images, dtype=np.float32)
+    test_images = torch.from_numpy(test_images)
+
+    test_poses = np.array(test_poses, dtype=np.float32)
+    test_poses = torch.from_numpy(test_poses)
+    # # check shapes
+    # print(images.shape)
+    # print(test_images.shape)
+    # print(poses.shape)
+    # print(test_poses.shape)
+
+    return camera_info, images, poses, test_poses, test_images
 
 def PixelToRay(camera_info, pose):
     """
@@ -105,7 +231,7 @@ def PixelToRay(camera_info, pose):
     
     directions = torch.stack((x, -y, -torch.ones_like(x)), dim=-1)
     directions = directions[..., np.newaxis, :]
-    
+
     rotation = pose[:3, :3]
     translation = pose[:3, -1].view(1, 1, 3)
     
@@ -126,7 +252,7 @@ def generateBatch(ray_origins, ray_directions, gt_colors, args, train=True):
         A set of rays origins, directions and gt colors
     """
     if train:
-        indices = np.random.choice(ray_origins.shape[0], 1024, replace=False)
+        indices = np.random.choice(ray_origins.shape[0], 4096, replace=False)
         sample_rays_o = ray_origins[indices].to(device)
         sample_rays_d = ray_directions[indices].to(device)
         sample_colors = gt_colors[indices].to(device)
@@ -153,6 +279,7 @@ def generateRays_and_gt(images, poses, camera_info, args):
 
     H, W, focal = camera_info
 
+    # for i in range(images.shape[0]):
     for i in range(images.shape[0]):
         img = images[i]
         pose = poses[i]
@@ -228,6 +355,7 @@ def render(model, rays_origin, rays_direction, args):
     rays_direction = rays_direction.expand(n_bins, rays_direction.shape[0], 3).transpose(0, 1).reshape(-1, 3)
     
     colors, sigma = model(flattened_query_input)
+    # colors, sigma = model(flattened_query_input, rays_direction)
 
     colors = colors.view(*query_input.shape[:-1], 3)
     sigma = sigma.view(*query_input.shape[:-1])
@@ -305,10 +433,11 @@ def loss(groundtruth, prediction):
 def train(images, poses, camera_info, args):
 
     # model = NerfModel().to(device)
-    model = VeryTinyNerfModel().to(device)
+    # model = VeryTinyNerfModel().to(device)
     # model.load_state_dict(torch.load("Output/checkpoint/model_500.pt", map_location=device))
-    # model = TinyNeRFmodel().to(device)
+    model = TinyNeRFmodel().to(device)
     optimiser = torch.optim.Adam(model.parameters(), lr=args.lrate)
+    scaler = GradScaler()
     
     Loss = []
     Epochs = []
@@ -323,63 +452,73 @@ def train(images, poses, camera_info, args):
     for i in range(args.max_iters):
        
         model.train()
+
+        with autocast():
         
-        batch_ray_origins, batch_ray_directions, batch_gt_colors = generateBatch(ray_origins, ray_directions, gt_colors, args)
-        # print(f"gt_colors shape: {batch_gt_colors.shape}")
-        rgb_pred = render(model, batch_ray_origins, batch_ray_directions, args)
-        # rgb_pred = render_rays(model, batch_ray_origins, batch_ray_directions)
-        # print(f" RGB shape: {rgb_pred.shape}")
-        
-        current_loss = loss(batch_gt_colors, rgb_pred)
-        print(f" Iteration: {i}, Loss: {current_loss.item()}")
-        optimiser.zero_grad()
-        current_loss.backward()
-        optimiser.step()
-        
-        Loss.append(current_loss.item())
-        
-        if i%300 == 0:
+            batch_ray_origins, batch_ray_directions, batch_gt_colors = generateBatch(ray_origins, ray_directions, gt_colors, args)
+            # print(f"gt_colors shape: {batch_gt_colors.shape}")
+            rgb_pred = render(model, batch_ray_origins, batch_ray_directions, args)
+            # rgb_pred = render_rays(model, batch_ray_origins, batch_ray_directions)
+            # print(f" RGB shape: {rgb_pred.shape}")
+            
+            current_loss = loss(batch_gt_colors, rgb_pred)
+            print(f" Iteration: {i}, Loss: {current_loss.item()}")
+            optimiser.zero_grad()
+            # current_loss.backward()
+            # optimiser.step()
+            scaler.scale(current_loss).backward()
+
+            # scaler.step() first unscales the gradients of the optimizer's assigned params.
+            # If these gradients do not contain infs or NaNs, optimizer.step() is then called,
+            # otherwise, optimizer.step() is skipped.
+            scaler.step(optimiser)
+
+            # Updates the scale for next iteration.
+            scaler.update()
+            
+            Loss.append(current_loss.item())
+            
+        if i%100 == 0:
             
             if current_loss.item() < best_loss:
                 best_loss = current_loss
                 print(f"Saving model at iteration: {i}")
                 torch.save(model.state_dict(), f"{args.checkpoint_path}/model_{i}.pt")
             
-            
             print(f" Iteration: {i}, Loss: {current_loss}")
             
             
-            model.eval()
-            with torch.no_grad():
-                test_ray_origins, test_ray_directions, test_gt  = generateRays_and_gt(test_images, test_poses, camera_info, args)
+        #     model.eval()
+        #     with torch.no_grad():
+        #         test_ray_origins, test_ray_directions, test_gt  = generateRays_and_gt(test_images, test_poses, camera_info, args)
                 
-                rgb_pred_test = []
-                for i in range(100):
-                    index_1 = i * 100
-                    index_2 = (i+1) * 100
-                    test_origins, test_directions, gt = generateBatch(test_ray_origins[index_1:index_2], test_ray_directions[index_1:index_2], test_gt[index_1:index_2], args, train=False)
+        #         rgb_pred_test = []
+        #         for i in range(1600):
+        #             index_1 = i * 100
+        #             index_2 = (i+1) * 100
+        #             test_origins, test_directions, gt = generateBatch(test_ray_origins[index_1:index_2], test_ray_directions[index_1:index_2], test_gt[index_1:index_2], args, train=False)
                     
-                    pred = render(model, test_origins, test_directions, args)
+        #             pred = render(model, test_origins, test_directions, args)
                     
-                    # pred = render_rays(model, test_origins, test_directions)
-                    rgb_pred_test.append(pred)
+        #             # pred = render_rays(model, test_origins, test_directions)
+        #             rgb_pred_test.append(pred)
                     
-                rgb_pred_test = torch.cat(rgb_pred_test, dim=0)
-                pred_image = rgb_pred_test.view(100, 100, 3).cpu().detach().numpy()
-                gt_image = test_gt[0:10000].view(100, 100, 3).cpu().detach().numpy()
+        #         rgb_pred_test = torch.cat(rgb_pred_test, dim=0)
+        #         pred_image = rgb_pred_test.view(400, 400, 3).cpu().detach().numpy()
+        #         gt_image = test_gt[0:160000].view(400, 400, 3).cpu().detach().numpy()
              
-                # Plotting the original vs predicted images
-                fig, ax = plt.subplots(1, 2, figsize=(10, 5))
+        #         # Plotting the original vs predicted images
+        #         fig, ax = plt.subplots(1, 2, figsize=(10, 5))
                 
-                ax[0].imshow(gt_image)
-                ax[0].set_title("Original Test Image")
-                ax[0].axis('off')  # Hide axes ticks
+        #         ax[0].imshow(gt_image)
+        #         ax[0].set_title("Original Test Image")
+        #         ax[0].axis('off')  # Hide axes ticks
                 
-                ax[1].imshow(pred_image)
-                ax[1].set_title("Predicted Test Image")
-                ax[1].axis('off')  # Hide axes ticks
+        #         ax[1].imshow(pred_image)
+        #         ax[1].set_title("Predicted Test Image")
+        #         ax[1].axis('off')  # Hide axes ticks
     
-                plt.show()
+        #         plt.show()
 
 
 # def test(images, poses, camera_info, args):
@@ -412,7 +551,7 @@ def configParser():
     parser.add_argument('--n_dirc_freq',default=4,help="number of positional encoding frequencies for viewing direction")
     parser.add_argument('--n_rays_batch',default=32*32*4,help="number of rays per batch")
     parser.add_argument('--n_sample',default=192,help="number of sample per ray")
-    parser.add_argument('--max_iters',default=10000,help="number of max iterations for training")
+    parser.add_argument('--max_iters',default=30000,help="number of max iterations for training")
     parser.add_argument('--logs_path',default="./logs/",help="logs path")
     parser.add_argument('--checkpoint_path',default="Phase2/Output/checkpoint",help="checkpoints path")
     parser.add_argument('--load_checkpoint',default=True,help="whether to load checkpoint or not")
