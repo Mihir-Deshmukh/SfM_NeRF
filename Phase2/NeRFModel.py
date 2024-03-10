@@ -47,7 +47,46 @@ import torch.nn.functional as F
 #         outputs = torch.cat([rgb, sigma], -1)
 
 #         return out
-    
+
+class NerfModel(nn.Module):
+    def __init__(self, embedding_dim_pos=10, embedding_dim_direction=4, hidden_dim=128):   
+        super(NerfModel, self).__init__()
+        
+        self.block1 = nn.Sequential(nn.Linear(embedding_dim_pos * 6 + 3, hidden_dim), nn.ReLU(),
+                                    nn.Linear(hidden_dim, hidden_dim), nn.ReLU(),
+                                    nn.Linear(hidden_dim, hidden_dim), nn.ReLU(),
+                                    nn.Linear(hidden_dim, hidden_dim), nn.ReLU(), )
+        # density estimation
+        self.block2 = nn.Sequential(nn.Linear(embedding_dim_pos * 6 + hidden_dim + 3, hidden_dim), nn.ReLU(),
+                                    nn.Linear(hidden_dim, hidden_dim), nn.ReLU(),
+                                    nn.Linear(hidden_dim, hidden_dim), nn.ReLU(),
+                                    nn.Linear(hidden_dim, hidden_dim + 1), )
+        # color estimation
+        self.block3 = nn.Sequential(nn.Linear(embedding_dim_direction * 6 + hidden_dim + 3, hidden_dim // 2), nn.ReLU(), )
+        self.block4 = nn.Sequential(nn.Linear(hidden_dim // 2, 3), nn.Sigmoid(), )
+
+        self.embedding_dim_pos = embedding_dim_pos
+        self.embedding_dim_direction = embedding_dim_direction
+        self.relu = nn.ReLU()
+
+    @staticmethod
+    def positional_encoding(x, L):
+        out = [x]
+        for j in range(L):
+            out.append(torch.sin(2 ** j * x))
+            out.append(torch.cos(2 ** j * x))
+        return torch.cat(out, dim=1)
+
+    def forward(self, o, d):
+        emb_x = self.positional_encoding(o, self.embedding_dim_pos) # emb_x: [batch_size, embedding_dim_pos * 6]
+        emb_d = self.positional_encoding(d, self.embedding_dim_direction) # emb_d: [batch_size, embedding_dim_direction * 6]
+        h = self.block1(emb_x) # h: [batch_size, hidden_dim]
+        tmp = self.block2(torch.cat((h, emb_x), dim=1)) # tmp: [batch_size, hidden_dim + 1]
+        h, sigma = tmp[:, :-1], self.relu(tmp[:, -1]) # h: [batch_size, hidden_dim], sigma: [batch_size]
+        h = self.block3(torch.cat((h, emb_d), dim=1)) # h: [batch_size, hidden_dim // 2]
+        c = self.block4(h) # c: [batch_size, 3]
+        return c, sigma
+   
     
 
 class TinyNeRFmodel(nn.Module):
@@ -100,3 +139,37 @@ class TinyNeRFmodel(nn.Module):
         x = self.output_layer(x)
 
         return F.sigmoid(x[..., :3]), F.relu(x[..., 3])
+    
+    
+class VeryTinyNerfModel(torch.nn.Module):
+
+    def __init__(self, filter_size=128, num_encoding_functions=6):
+        super(VeryTinyNerfModel, self).__init__()
+        # Input layer (default: 39 -> 128)
+        self.layer1 = torch.nn.Linear(3 + 3 * 2 * num_encoding_functions, filter_size)
+        # Layer 2 (default: 128 -> 128)
+        self.layer2 = torch.nn.Linear(filter_size, filter_size)
+        # Layer 3 (default: 128 -> 4)
+        self.layer3 = torch.nn.Linear(filter_size, 4)
+        # Short hand for torch.nn.functional.relu
+        self.relu = torch.nn.functional.relu
+    
+    def position_encoding(self, x, L):
+        #############################
+        # Implement position encoding here
+        #############################
+        out = [x]
+        for i in range(L):
+            out.append(torch.sin(2**i * np.pi * x))
+            out.append(torch.cos(2**i * np.pi * x))
+
+        y = torch.cat(out, dim=-1)
+        return y
+  
+    def forward(self, x):
+        x = self.position_encoding(x, 6)
+        x = self.relu(self.layer1(x))
+        x = self.relu(self.layer2(x))
+        x = self.layer3(x)
+        return torch.sigmoid(x[..., :3]), torch.relu(x[..., 3])
+

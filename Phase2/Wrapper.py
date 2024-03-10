@@ -17,6 +17,18 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 np.random.seed(0)
 torch.random.manual_seed(0)
 
+def meshgrid_xy(tensor1: torch.Tensor, tensor2: torch.Tensor) -> (torch.Tensor, torch.Tensor):
+    """Mimick np.meshgrid(..., indexing="xy") in pytorch. torch.meshgrid only allows "ij" indexing.
+    (If you're unsure what this means, safely skip trying to understand this, and run a tiny example!)
+    
+    Args:
+      tensor1 (torch.Tensor): Tensor whose elements define the first dimension of the returned meshgrid.
+      tensor2 (torch.Tensor): Tensor whose elements define the second dimension of the returned meshgrid.
+    """
+    # TESTED
+    ii, jj = torch.meshgrid(tensor1, tensor2)
+    return ii.transpose(-1, -2), jj.transpose(-1, -2)
+
 def loadDataset(data_path, mode, device):
     """
     Input:
@@ -80,6 +92,7 @@ def loadDataset(data_path, mode, device):
     camera_info = (H, W, focal)
     return camera_info, images, poses, test_poses, test_images
 
+
 def PixelToRay(camera_info, pose):
     """
     Input:
@@ -91,25 +104,31 @@ def PixelToRay(camera_info, pose):
         ray origin and direction
     """
     H, W, focal = camera_info
-    mesh_x, mesh_y = torch.meshgrid(torch.linspace(0, W-1, W), torch.linspace(0, H-1, H), indexing='ij')
-    mesh_x = mesh_x.to(device)
-    mesh_y = mesh_y.to(device)
-
-    x = (mesh_x - W/2) / focal
-    y = (mesh_y - H/2) / focal
-
-    directions = torch.stack((x, -y, -torch.ones_like(x)), dim=-1)
-    # print(directions.shape)
-    directions = directions[..., np.newaxis, :]
-
-    rotation = pose[:3, :3]
-    translation = pose[:3, -1].view(1, 1, 3)
-
-    ray_direction = torch.matmul(directions, rotation)
-    ray_direction = ray_direction.squeeze(2)
+    ii, jj = meshgrid_xy(
+    torch.arange(W).to(pose),
+    torch.arange(H).to(pose))
+    #   print(ii.shape, jj.shape)
+    #   print(ii[0], jj[0])
     
-    ray_direction = ray_direction/torch.linalg.norm(ray_direction, axis=-1, keepdim=True)
-    ray_origin = translation.expand(ray_direction.shape[0], ray_direction.shape[1], -1)
+    directions = torch.stack([(ii - W * .5) / focal,
+                            -(jj - H * .5) / focal,
+                            -torch.ones_like(ii)
+                           ], dim=-1)
+    ray_direction = torch.sum(directions[..., None, :] * pose[:3, :3], dim=-1)
+    ray_origin = pose[:3, -1].expand(ray_direction.shape)
+    
+    # x = (ii - W/2) / focal
+    # y = (jj - H/2) / focal
+    
+    # directions = torch.stack((x, -y, -torch.ones_like(x)), dim=-1)
+    # directions = directions[..., np.newaxis, :]
+    
+    # rotation = pose[:3, :3]
+    # translation = pose[:3, -1].view(1, 1, 3)
+    
+    # ray_direction = torch.sum(directions*rotation, dim=-1)
+    # ray_direction = ray_direction/torch.linalg.norm(ray_direction, axis=-1, keepdim=True)
+    # ray_origin = translation.expand(ray_direction.shape[0], ray_direction.shape[1], -1)
 
     return ray_direction, ray_origin
 
@@ -124,7 +143,7 @@ def generateBatch(ray_origins, ray_directions, gt_colors, args, train=True):
         A set of rays origins, directions and gt colors
     """
     if train:
-        indices = np.random.choice(ray_origins.shape[0], 4096, replace=False)
+        indices = np.random.choice(ray_origins.shape[0], 1024, replace=False)
         sample_rays_o = ray_origins[indices].to(device)
         sample_rays_d = ray_directions[indices].to(device)
         sample_colors = gt_colors[indices].to(device)
@@ -155,7 +174,7 @@ def generateRays_and_gt(images, poses, camera_info, args):
         img = images[i]
         pose = poses[i]
 
-        rays_o, rays_d = PixelToRay(camera_info, pose)
+        rays_d, rays_o = PixelToRay(camera_info, pose)
         all_rays_o.append(rays_o.view(-1, 3))
         all_rays_d.append(rays_d.view(-1, 3))
         all_colors.append(img.view(-1, 3))
@@ -165,7 +184,41 @@ def generateRays_and_gt(images, poses, camera_info, args):
     all_colors = torch.cat(all_colors, dim=0)
 
     return all_rays_o, all_rays_d, all_colors
+
+def compute_accumulated_transmittance(alphas):
+    accumulated_transmittance = torch.cumprod(alphas, 1)
+    return torch.cat((torch.ones((accumulated_transmittance.shape[0], 1), device=alphas.device),
+                      accumulated_transmittance[:, :-1]), dim=-1)
+
+
+def render_rays(nerf_model, ray_origins, ray_directions, hn=2, hf=6, nb_bins=128):
+    device = ray_origins.device
     
+    t = torch.linspace(hn, hf, nb_bins, device=device).expand(ray_origins.shape[0], nb_bins)
+    # Perturb sampling along each ray.
+    mid = (t[:, :-1] + t[:, 1:]) / 2.
+    lower = torch.cat((t[:, :1], mid), -1)
+    upper = torch.cat((mid, t[:, -1:]), -1)
+    u = torch.rand(t.shape, device=device)
+    t = lower + (upper - lower) * u  # [batch_size, nb_bins]
+    delta = torch.cat((t[:, 1:] - t[:, :-1], torch.tensor([1e10], device=device).expand(ray_origins.shape[0], 1)), -1)
+
+    # Compute the 3D points along each ray
+    x = ray_origins.unsqueeze(1) + t.unsqueeze(2) * ray_directions.unsqueeze(1)   # [batch_size, nb_bins, 3]
+    # Expand the ray_directions tensor to match the shape of x
+    ray_directions = ray_directions.expand(nb_bins, ray_directions.shape[0], 3).transpose(0, 1) 
+
+    colors, sigma  = nerf_model(x.reshape(-1, 3))
+    # print(f"Output shape: {output.shape}")
+    colors = colors.reshape(x.shape)
+    sigma = sigma.reshape(x.shape[:-1])
+
+    alpha = 1 - torch.exp(-sigma * delta)  # [batch_size, nb_bins]
+    weights = compute_accumulated_transmittance(1 - alpha).unsqueeze(2) * alpha.unsqueeze(2)
+    # Compute the pixel values as a weighted sum of colors along each ray
+    c = (weights * colors).sum(dim=1)
+    weight_sum = weights.sum(-1).sum(-1)  # Regularization for white background 
+    return c + 1 - weight_sum.unsqueeze(-1)
 
 def render(model, rays_origin, rays_direction, args):
     """
@@ -176,7 +229,7 @@ def render(model, rays_origin, rays_direction, args):
     Outputs:
         rgb values of input rays
     """
-    n_bins = 64
+    n_bins = 192
     t_near = 2
     t_far = 6
     
@@ -189,9 +242,11 @@ def render(model, rays_origin, rays_direction, args):
     query_input = rays_origin.unsqueeze(1) + rays_direction.unsqueeze(1) * t.unsqueeze(-1)
     flattened_query_input = query_input.view(-1, 3)
     
-    # rays_direction = rays_direction.expand(n_bins, rays_direction.shape[0], 3).transpose(0, 1).reshape(-1, 3)
+    rays_direction = rays_direction.expand(n_bins, rays_direction.shape[0], 3).transpose(0, 1).reshape(-1, 3)
     
-    colors, sigma = model(flattened_query_input)
+    output = model(flattened_query_input)
+    colors = torch.nn.functional.sigmoid(output[:3])
+    sigma = torch.nn.functional.relu(output[3])
     colors = colors.view(*query_input.shape[:-1], 3)
     sigma = sigma.view(*query_input.shape[:-1])
     
@@ -268,12 +323,14 @@ def loss(groundtruth, prediction):
 def train(images, poses, camera_info, args):
 
     # model = NerfModel().to(device)
-    model = TinyNeRFmodel().to(device)
+    model = VeryTinyNerfModel().to(device)
+    # model.load_state_dict(torch.load("Output/checkpoint/model_500.pt", map_location=device))
+    # model = TinyNeRFmodel().to(device)
     optimiser = torch.optim.Adam(model.parameters(), lr=args.lrate)
-
+    
     Loss = []
     Epochs = []
-    
+        
     # read all images, poses and generate rays and gt colors
     ray_origins, ray_directions, gt_colors = generateRays_and_gt(images, poses, camera_info, args)
     print(f" Ray Origins: {ray_origins.shape}")
@@ -282,23 +339,24 @@ def train(images, poses, camera_info, args):
 
     best_loss = float('inf')
     for i in range(args.max_iters):
-        print(f" Iteration: {i}")
+       
         model.train()
         
         batch_ray_origins, batch_ray_directions, batch_gt_colors = generateBatch(ray_origins, ray_directions, gt_colors, args)
         # print(f"gt_colors shape: {batch_gt_colors.shape}")
-        rgb_pred = render(model, batch_ray_origins, batch_ray_directions, args)
+        # rgb_pred = render(model, batch_ray_origins, batch_ray_directions, args)
+        rgb_pred = render_rays(model, batch_ray_origins, batch_ray_directions)
         # print(f" RGB shape: {rgb_pred.shape}")
         
         current_loss = loss(batch_gt_colors, rgb_pred)
-        
+        print(f" Iteration: {i}, Loss: {current_loss.item()}")
         optimiser.zero_grad()
         current_loss.backward()
         optimiser.step()
         
         Loss.append(current_loss.item())
         
-        if i % 50 == 0:
+        if i%100 == 0:
             
             if current_loss.item() < best_loss:
                 best_loss = current_loss
@@ -309,32 +367,34 @@ def train(images, poses, camera_info, args):
             print(f" Iteration: {i}, Loss: {current_loss}")
             
             
-            # model.eval()
-            test_ray_origins, test_ray_directions, test_gt  = generateRays_and_gt(test_images, test_poses, camera_info, args)
-            
-            rgb_pred_test = []
-            for i in range(10):
-                index_1 = i * 1000
-                index_2 = (i+1) * 1000
-                pred = render(model, test_ray_origins[index_1:index_2], test_ray_directions[index_1:index_2], args)
-                rgb_pred_test.append(pred)
+            model.eval()
+            with torch.no_grad():
+                test_ray_origins, test_ray_directions, test_gt  = generateRays_and_gt(test_images, test_poses, camera_info, args)
                 
-            rgb_pred_test = torch.cat(rgb_pred_test, dim=0)
-            pred_image = rgb_pred_test.view(100, 100, 3).cpu().detach().numpy()
-            gt_image = test_gt[0:10000].view(100, 100, 3).cpu().detach().numpy()
-         
-            # Plotting the original vs predicted images
-            fig, ax = plt.subplots(1, 2, figsize=(10, 5))
-            
-            ax[0].imshow(gt_image)
-            ax[0].set_title("Original Test Image")
-            ax[0].axis('off')  # Hide axes ticks
-            
-            ax[1].imshow(pred_image)
-            ax[1].set_title("Predicted Test Image")
-            ax[1].axis('off')  # Hide axes ticks
-
-            plt.show()
+                rgb_pred_test = []
+                for i in range(100):
+                    index_1 = i * 100
+                    index_2 = (i+1) * 100
+                    test_origins, test_directions, gt = generateBatch(test_ray_origins[index_1:index_2], test_ray_directions[index_1:index_2], test_gt[index_1:index_2], args, train=False)
+                    pred = render_rays(model, test_origins, test_directions)
+                    rgb_pred_test.append(pred)
+                    
+                rgb_pred_test = torch.cat(rgb_pred_test, dim=0)
+                pred_image = rgb_pred_test.view(100, 100, 3).cpu().detach().numpy()
+                gt_image = test_gt[0:10000].view(100, 100, 3).cpu().detach().numpy()
+             
+                # Plotting the original vs predicted images
+                fig, ax = plt.subplots(1, 2, figsize=(10, 5))
+                
+                ax[0].imshow(gt_image)
+                ax[0].set_title("Original Test Image")
+                ax[0].axis('off')  # Hide axes ticks
+                
+                ax[1].imshow(pred_image)
+                ax[1].set_title("Predicted Test Image")
+                ax[1].axis('off')  # Hide axes ticks
+    
+                plt.show()
 
 
 # def test(images, poses, camera_info, args):
@@ -366,7 +426,7 @@ def configParser():
     parser.add_argument('--n_pos_freq',default=10,help="number of positional encoding frequencies for position")
     parser.add_argument('--n_dirc_freq',default=4,help="number of positional encoding frequencies for viewing direction")
     parser.add_argument('--n_rays_batch',default=32*32*4,help="number of rays per batch")
-    parser.add_argument('--n_sample',default=400,help="number of sample per ray")
+    parser.add_argument('--n_sample',default=192,help="number of sample per ray")
     parser.add_argument('--max_iters',default=10000,help="number of max iterations for training")
     parser.add_argument('--logs_path',default="./logs/",help="logs path")
     parser.add_argument('--checkpoint_path',default="Phase2/Output/checkpoint",help="checkpoints path")
