@@ -95,6 +95,8 @@ def PixelToRay(camera_info, pose):
 
     mesh_x, mesh_y = torch.meshgrid(torch.linspace(0, W-1, W).to(pose), torch.linspace(0, H-1, H).to(pose), indexing='ij')
 
+    # transpose needed as mesh is for vector representation wrt to the center of the image. therefore all columns of x need to be 0    
+
     mesh_x = mesh_x.T
     mesh_y = mesh_y.T
 
@@ -225,9 +227,8 @@ def render(model, rays_origin, rays_direction, args):
     
     rays_direction = rays_direction.expand(n_bins, rays_direction.shape[0], 3).transpose(0, 1).reshape(-1, 3)
     
-    output = model(flattened_query_input)
-    colors = torch.nn.functional.sigmoid(output[:3])
-    sigma = torch.nn.functional.relu(output[3])
+    colors, sigma = model(flattened_query_input)
+
     colors = colors.view(*query_input.shape[:-1], 3)
     sigma = sigma.view(*query_input.shape[:-1])
     
@@ -325,8 +326,8 @@ def train(images, poses, camera_info, args):
         
         batch_ray_origins, batch_ray_directions, batch_gt_colors = generateBatch(ray_origins, ray_directions, gt_colors, args)
         # print(f"gt_colors shape: {batch_gt_colors.shape}")
-        # rgb_pred = render(model, batch_ray_origins, batch_ray_directions, args)
-        rgb_pred = render_rays(model, batch_ray_origins, batch_ray_directions)
+        rgb_pred = render(model, batch_ray_origins, batch_ray_directions, args)
+        # rgb_pred = render_rays(model, batch_ray_origins, batch_ray_directions)
         # print(f" RGB shape: {rgb_pred.shape}")
         
         current_loss = loss(batch_gt_colors, rgb_pred)
@@ -357,7 +358,10 @@ def train(images, poses, camera_info, args):
                     index_1 = i * 100
                     index_2 = (i+1) * 100
                     test_origins, test_directions, gt = generateBatch(test_ray_origins[index_1:index_2], test_ray_directions[index_1:index_2], test_gt[index_1:index_2], args, train=False)
-                    pred = render_rays(model, test_origins, test_directions)
+                    
+                    pred = render(model, test_origins, test_directions, args)
+                    
+                    # pred = render_rays(model, test_origins, test_directions)
                     rgb_pred_test.append(pred)
                     
                 rgb_pred_test = torch.cat(rgb_pred_test, dim=0)
