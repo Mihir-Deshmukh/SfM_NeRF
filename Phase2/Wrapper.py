@@ -12,6 +12,7 @@ import numpy as np
 import json
 from torch.cuda.amp import autocast
 from torch.cuda.amp import GradScaler
+from torchmetrics.image import StructuralSimilarityIndexMeasure
 
 from NeRFModel import *
 
@@ -136,7 +137,7 @@ def load_images(image_dir):
         img_path = os.path.join(image_dir, f"r_{i}.png")
         img = cv2.imread(img_path) 
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        img = cv2.resize(img, (400, 400)) / 255
+        img = cv2.resize(img, (100, 100)) / 255
         images.append(img)
         if i == 199:
             break
@@ -177,7 +178,7 @@ def loadDataset(data_path, mode, device):
 
     camera_info = (H, W, focal)
 
-    test_data_path = "Phase2/Data/lego/lego/transforms_test.json"
+    test_data_path = "Phase2/Data/lego/transforms_test.json"
     #os.path.join(os.path.dirname(data_path), 'test', 'transforms_test.json')
     with open(test_data_path, 'r') as file:
         test_data = json.load(file)
@@ -354,8 +355,8 @@ def render(model, rays_origin, rays_direction, args):
     
     rays_direction = rays_direction.expand(n_bins, rays_direction.shape[0], 3).transpose(0, 1).reshape(-1, 3)
     
-    # colors, sigma = model(flattened_query_input)
-    colors, sigma = model(flattened_query_input, rays_direction)
+    colors, sigma = model(flattened_query_input)
+    # colors, sigma = model(flattened_query_input, rays_direction)
 
     colors = colors.view(*query_input.shape[:-1], 3)
     sigma = sigma.view(*query_input.shape[:-1])
@@ -520,9 +521,108 @@ def train(images, poses, camera_info, args):
     
         #         plt.show()
 
+def render_image(model, test_ray_origins, test_ray_directions, H, W, args):
+    rgb_pred_test = []
+    num_rays_per_batch = 200
 
-# def test(images, poses, camera_info, args):
+    for i in range(H * W // num_rays_per_batch):
+        index_1 = i * num_rays_per_batch
+        index_2 = (i + 1) * num_rays_per_batch
+        test_origins_batch = test_ray_origins[index_1:index_2]
+        test_directions_batch = test_ray_directions[index_1:index_2]
 
+        # Assuming generateBatch function generates rays for one batch
+        pred = render(model, test_origins_batch, test_directions_batch, args)
+        rgb_pred_test.append(pred)
+
+    rgb_pred_test = torch.cat(rgb_pred_test, dim=0)
+    pred_image = rgb_pred_test.view(H, W, 3).cpu().detach().numpy()
+    return pred_image
+
+def test(images, poses, camera_info, args):
+    
+    if args.load_checkpoint:
+        model = TinyNeRFmodel().to(device)
+        model.load_state_dict(torch.load("Phase2/Output/checkpoint/model_4400.pt", map_location=device))
+    
+    H, W, focal = camera_info
+    model.eval()
+    
+    PSNRs = []
+    SSIMs = []
+    
+    with torch.no_grad():
+        test_ray_origins, test_ray_directions, test_gt  = generateRays_and_gt(images, poses, camera_info, args)
+        index_2 = 0
+        num_images = test_gt.shape[0] // (H*W)
+        num_rays_per_image = H*W
+        frames = []
+        
+        # for iteration_index in range(num_images):
+        #     rgb_pred_test = []
+        #     for i in range(H*W//200):
+        #         index_1 = index_2
+        #         index_2 = index_2 + 200
+        #         test_origins, test_directions, gt = generateBatch(test_ray_origins[index_1:index_2], test_ray_directions[index_1:index_2], test_gt[index_1:index_2], args, train=False)
+        #         pred = render(model, test_origins, test_directions, args)
+        #         rgb_pred_test.append(pred)
+
+        #     rgb_pred_test = torch.cat(rgb_pred_test, dim=0)
+        #     pred_image = rgb_pred_test.view(H, W, 3).cpu().detach().numpy()
+        #     gt_image = test_gt[iteration_index * num_rays_per_image:(iteration_index + 1) * num_rays_per_image].view(H, W, 3).cpu().detach().numpy()
+        
+        for iteration_index in range(num_images):
+            pred_image = render_image(model, test_ray_origins, test_ray_directions, H, W, args)
+            gt_image = test_gt[iteration_index * num_rays_per_image:(iteration_index + 1) * num_rays_per_image].view(H, W, 3).cpu().detach().numpy()
+            
+            frames.append((255 * pred_image).astype(np.uint8))
+
+            # Calculate PSNR
+            psnr = PSNR(gt_image, pred_image)
+            PSNRs.append(psnr)
+            
+            # Calculate SSIM
+            ssim = SSIM(gt_image, pred_image)
+            SSIMs.append(ssim)
+            
+            
+            if args.plot:
+                # Plotting the original vs predicted images
+                fig, ax = plt.subplots(1, 2, figsize=(10, 5))
+                
+                ax[0].imshow(gt_image)
+                ax[0].set_title("Original Test Image")
+                ax[0].axis('off')  # Hide axes ticks
+                
+                ax[1].imshow(pred_image)
+                ax[1].set_title("Predicted Test Image")
+                ax[1].axis('off')  # Hide axes ticks
+
+                plt.show()
+
+    
+    print(f"Average PSNR: {torch.mean(torch.tensor(PSNRs))}")
+    print(f"Average SSIM: {torch.mean(torch.tensor(SSIMs))}")
+    
+    gif_filename = 'animation.gif'
+    imageio.mimsave(gif_filename, frames, fps=30)
+
+    print(f"GIF saved as {gif_filename}")
+
+def PSNR(gt, pred):
+    # Convert to tensor
+    gt = torch.tensor(gt)
+    pred = torch.tensor(pred)
+    mse = torch.mean((gt - pred) ** 2)
+    return 10 * torch.log10(1.0 / mse)
+
+def SSIM(gt, pred):
+    # Convert to tensor
+    gt = torch.tensor(gt).permute(2, 0, 1).unsqueeze(0)
+    pred = torch.tensor(pred).permute(2, 0, 1).unsqueeze(0)
+    # Calculate SSIM
+    ssim = StructuralSimilarityIndexMeasure(data_range=1.0)
+    return ssim(pred, gt)
 
 def main(args):
     # load data
@@ -540,12 +640,12 @@ def main(args):
     elif args.mode == 'test':
         print("Start testing")
         args.load_checkpoint = True
-        #test(images, poses, camera_info, args)
+        test(test_images, test_poses, camera_info, args)
 
 def configParser():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--data_path',default="./Phase2/Data/lego/lego/transforms_train.json",help="dataset path")
-    parser.add_argument('--mode',default='train',help="train/test/val")
+    parser.add_argument('--data_path',default="./Phase2/Data/lego/transforms_train.json",help="dataset path")
+    parser.add_argument('--mode',default='test',help="train/test/val")
     parser.add_argument('--lrate',default=5e-4,help="training learning rate")
     parser.add_argument('--n_pos_freq',default=10,help="number of positional encoding frequencies for position")
     parser.add_argument('--n_dirc_freq',default=4,help="number of positional encoding frequencies for viewing direction")
@@ -558,6 +658,7 @@ def configParser():
     parser.add_argument('--save_ckpt_iter',default=1000,help="num of iteration to save checkpoint")
     parser.add_argument('--images_path', default="./image/",help="folder to store images")
     parser.add_argument('--epochs', default=1000, help="number of epochs")
+    parser.add_argument('--plot', default=True, help="whether to plot images or not")
     return parser
 
 if __name__ == "__main__":
