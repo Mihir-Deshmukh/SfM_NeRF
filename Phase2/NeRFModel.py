@@ -3,56 +3,21 @@ import torch.nn as nn
 import numpy as np
 import torch.nn.functional as F
 
-class NerfModel(nn.Module):
-    def __init__(self, embedding_dim_pos=10, embedding_dim_direction=4, hidden_dim=128):   
-        super(NerfModel, self).__init__()
-        
-        self.block1 = nn.Sequential(nn.Linear(embedding_dim_pos * 6 + 3, hidden_dim), nn.ReLU(),
-                                    nn.Linear(hidden_dim, hidden_dim), nn.ReLU(),
-                                    nn.Linear(hidden_dim, hidden_dim), nn.ReLU(),
-                                    nn.Linear(hidden_dim, hidden_dim), nn.ReLU(), )
-        # density estimation
-        self.block2 = nn.Sequential(nn.Linear(embedding_dim_pos * 6 + hidden_dim + 3, hidden_dim), nn.ReLU(),
-                                    nn.Linear(hidden_dim, hidden_dim), nn.ReLU(),
-                                    nn.Linear(hidden_dim, hidden_dim), nn.ReLU(),
-                                    nn.Linear(hidden_dim, hidden_dim + 1), )
-        # color estimation
-        self.block3 = nn.Sequential(nn.Linear(embedding_dim_direction * 6 + hidden_dim + 3, hidden_dim // 2), nn.ReLU(), )
-        self.block4 = nn.Sequential(nn.Linear(hidden_dim // 2, 3), nn.Sigmoid(), )
-
-        self.embedding_dim_pos = embedding_dim_pos
-        self.embedding_dim_direction = embedding_dim_direction
-        self.relu = nn.ReLU()
-
-    @staticmethod
-    def positional_encoding(x, L):
-        out = [x]
-        for j in range(L):
-            out.append(torch.sin(2 ** j * x))
-            out.append(torch.cos(2 ** j * x))
-        return torch.cat(out, dim=1)
-
-    def forward(self, o, d):
-        emb_x = self.positional_encoding(o, self.embedding_dim_pos) # emb_x: [batch_size, embedding_dim_pos * 6]
-        emb_d = self.positional_encoding(d, self.embedding_dim_direction) # emb_d: [batch_size, embedding_dim_direction * 6]
-        h = self.block1(emb_x) # h: [batch_size, hidden_dim]
-        tmp = self.block2(torch.cat((h, emb_x), dim=1)) # tmp: [batch_size, hidden_dim + 1]
-        h, sigma = tmp[:, :-1], self.relu(tmp[:, -1]) # h: [batch_size, hidden_dim], sigma: [batch_size]
-        h = self.block3(torch.cat((h, emb_d), dim=1)) # h: [batch_size, hidden_dim // 2]
-        c = self.block4(h) # c: [batch_size, 3]
-        return c, sigma
-   
 
 
 class NeRFmodel(nn.Module):
     def __init__(self, embed_pos_L=10, embed_dir_L=4, hidden_size=256):
-        super(TinyNeRFmodel, self).__init__()
+        super(NeRFmodel, self).__init__()
         #############################
         # network initialization
         #############################
         # Define the layers according to the provided filter size and input dimension
-        self.fc_input_dim = 3 + 3 * 2 * embed_pos_L
         
+        self.fc_input_dim = 3 + 3 * 2 * embed_pos_L
+        # self.fc_input_dim = 3
+        self.fc_feat_input_dim = 3 + 3 * 2 * embed_dir_L
+        # self.fc_feat_input_dim = 3
+
         # Define the MLP
         self.layers = nn.ModuleList()
         for i in range(8):
@@ -67,7 +32,7 @@ class NeRFmodel(nn.Module):
             self.layers.append(nn.Linear(in_features, out_features))
         
         
-        self.feat_layer = nn.Linear(hidden_size + 6 * embed_dir_L + 3, hidden_size//2)
+        self.feat_layer = nn.Linear(hidden_size + self.fc_feat_input_dim, hidden_size//2)
         # Output layer
         self.rgb_layer = nn.Linear(hidden_size//2, 3)
         
@@ -105,6 +70,25 @@ class NeRFmodel(nn.Module):
         x = self.rgb_layer(x)
 
         return F.sigmoid(x), sigma
+    
+    # def forward(self, pos, dir):
+    #     #############################
+    #     # network structure
+    #     #############################
+    #     # print(f"pos: {pos.shape} ")
+    #     x = pos
+    #     # print(f"x: {x.shape}")
+    #     for i, layer in enumerate(self.layers):
+    #         if i in [4] and i > 0:
+    #             x = torch.cat([x, pos], -1)
+    #         x = F.relu(layer(x))
+        
+    #     sigma, x = x[..., -1], x[..., :-1]
+    #     x = torch.cat([x, dir], -1)
+    #     x = F.relu(self.feat_layer(x))
+    #     x = self.rgb_layer(x)
+
+    #     return F.sigmoid(x), sigma
     
 
 class TinyNeRFmodel(nn.Module):

@@ -20,124 +20,13 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 np.random.seed(0)
 torch.random.manual_seed(0)
 
-# def loadDataset(data_path, mode, device):
-#     """
-#     Input:
-#         data_path: dataset path
-#         mode: train or test
-#     Outputs:
-#         camera_info: image width, height, camera matrix 
-#         images: images
-#         pose: corresponding camera pose in world frame
-#     """
-#     with open(data_path, 'r') as file:
-#         data = json.load(file)
-
-#     # Accessing data
-#     camera_angle_x = data['camera_angle_x']
-#     frames = data['frames']
-
-#     file_paths = []
-#     rotations = []
-#     poses = []
-
-#     # Example of accessing specific information
-#     for frame in frames:
-
-#         file_path = frame['file_path']
-#         rotation = frame['rotation']
-#         transform_matrix = frame['transform_matrix']
-
-#         file_paths.append(file_path)
-#         rotations.append(rotation)
-#         poses.append(transform_matrix)
-
-#     test_data_path = "Phase2/Data/lego/lego/transforms_test.json"
-#     with open(test_data_path, 'r') as file:
-#         test_data = json.load(file)
-
-#     # Accessing data
-#     test_camera_angle_x = test_data['camera_angle_x']
-#     test_frames = test_data['frames']
-
-#     test_file_paths = []
-#     test_rotations = []
-#     test_poses = []
-
-#     # Example of accessing specific information
-#     for frame in test_frames:
-
-#         test_file_path = frame['file_path']
-#         test_rotation = frame['rotation']
-#         test_transform_matrix = frame['transform_matrix']
-
-#         test_file_paths.append(test_file_path)
-#         test_rotations.append(test_rotation)
-#         test_poses.append(test_transform_matrix)
-
-#     image_path = "Phase2/Data/lego/lego/train"
-#     test_image_path = "Phase2/Data/lego/lego/test"
-
-#     images = []
-
-#     for i in range(len(os.listdir(image_path))):
-#         img = cv2.imread(os.path.join(image_path, f"r_{i}.png"))
-#         images.append(img)
-
-#     test_images = []
-
-#     for i in range(len(os.listdir(test_image_path))):
-#         img = cv2.imread(os.path.join(test_image_path, f"r_{i}.png"))
-#         test_images.append(img)
-
-#     cv2.imshow("image", test_images[1])
-#     cv2.waitKey(0)
-
-#     images = np.array(images)
-#     # print(len(test_images))
-#     # test_images = np.array(test_images)
-#     poses = np.array(poses)
-#     test_poses = np.array(test_poses)
-
-#     images = torch.from_numpy(images).to(device)
-#     test_images = torch.from_numpy(test_images).to(device)
-#     poses = torch.from_numpy(poses).to(device)
-#     test_poses = torch.from_numpy(test_poses).to(device)
-
-#     H, W = images[0].shape[0], images[0].shape[1]
-#     focal = 0.5 * W / np.tan(0.5 * camera_angle_x)
-
-#     camera_info = (H, W, focal)
-
-#     # data = np.load("Phase2/Data/tiny_nerf_data.npz")
-#     # images = data["images"][:100]
-#     # test_images = data["images"][100:]
-    
-#     # poses = data["poses"][:100]
-#     # poses = torch.from_numpy(poses).to(device)
-#     # focal =  data["focal"]
-#     # focal = torch.from_numpy(focal)
-#     # # print(images.shape)
-#     # plt.imshow(data["images"][100])
-#     # plt.show()
-
-#     # H, W = images.shape[1:3]
-#     # test_poses = data["poses"][100:]
-#     # test_poses = torch.from_numpy(test_poses).to(device)
- 
-#     # images = torch.from_numpy(images).to(device)
-#     # test_images = torch.from_numpy(test_images).to(device)
-#     # camera_info = (H, W, focal)
-#     return camera_info, images, poses, test_poses, test_images
-
-
 def load_images(image_dir):
     images = []
     for i, filename in enumerate(os.listdir(image_dir)):
         img_path = os.path.join(image_dir, f"r_{i}.png")
         img = cv2.imread(img_path) 
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        img = cv2.resize(img, (100, 100)) / 255
+        img = cv2.resize(img, (400, 400)) / 255
         images.append(img)
         if i == 199:
             break
@@ -178,7 +67,7 @@ def loadDataset(data_path, mode, device):
 
     camera_info = (H, W, focal)
 
-    test_data_path = "Phase2/Data/lego/transforms_test.json"
+    test_data_path = "Phase2/Data/ship/transforms_test.json"
     #os.path.join(os.path.dirname(data_path), 'test', 'transforms_test.json')
     with open(test_data_path, 'r') as file:
         test_data = json.load(file)
@@ -200,11 +89,13 @@ def loadDataset(data_path, mode, device):
 
     test_poses = np.array(test_poses, dtype=np.float32)
     test_poses = torch.from_numpy(test_poses)
-    # # check shapes
-    # print(images.shape)
-    # print(test_images.shape)
-    # print(poses.shape)
-    # print(test_poses.shape)
+    # check shapes
+    print(images.shape)
+    print(test_images.shape)
+    print(poses.shape)
+    print(test_poses.shape)
+    # test_poses = None
+    # test_images = None
 
     return camera_info, images, poses, test_poses, test_images
 
@@ -279,8 +170,6 @@ def generateRays_and_gt(images, poses, camera_info, args):
     all_colors = []
 
     H, W, focal = camera_info
-
-    # for i in range(images.shape[0]):
     for i in range(images.shape[0]):
         img = images[i]
         pose = poses[i]
@@ -296,40 +185,6 @@ def generateRays_and_gt(images, poses, camera_info, args):
 
     return all_rays_o, all_rays_d, all_colors
 
-def compute_accumulated_transmittance(alphas):
-    accumulated_transmittance = torch.cumprod(alphas, 1)
-    return torch.cat((torch.ones((accumulated_transmittance.shape[0], 1), device=alphas.device),
-                      accumulated_transmittance[:, :-1]), dim=-1)
-
-
-def render_rays(nerf_model, ray_origins, ray_directions, hn=2, hf=6, nb_bins=192):
-    device = ray_origins.device
-    
-    t = torch.linspace(hn, hf, nb_bins, device=device).expand(ray_origins.shape[0], nb_bins)
-    # Perturb sampling along each ray.
-    mid = (t[:, :-1] + t[:, 1:]) / 2.
-    lower = torch.cat((t[:, :1], mid), -1)
-    upper = torch.cat((mid, t[:, -1:]), -1)
-    u = torch.rand(t.shape, device=device)
-    t = lower + (upper - lower) * u  # [batch_size, nb_bins]
-    delta = torch.cat((t[:, 1:] - t[:, :-1], torch.tensor([1e10], device=device).expand(ray_origins.shape[0], 1)), -1)
-
-    # Compute the 3D points along each ray
-    x = ray_origins.unsqueeze(1) + t.unsqueeze(2) * ray_directions.unsqueeze(1)   # [batch_size, nb_bins, 3]
-    # Expand the ray_directions tensor to match the shape of x
-    ray_directions = ray_directions.expand(nb_bins, ray_directions.shape[0], 3).transpose(0, 1) 
-
-    colors, sigma  = nerf_model(x.reshape(-1, 3))
-    # print(f"Output shape: {output.shape}")
-    colors = colors.reshape(x.shape)
-    sigma = sigma.reshape(x.shape[:-1])
-
-    alpha = 1 - torch.exp(-sigma * delta)  # [batch_size, nb_bins]
-    weights = compute_accumulated_transmittance(1 - alpha).unsqueeze(2) * alpha.unsqueeze(2)
-    # Compute the pixel values as a weighted sum of colors along each ray
-    c = (weights * colors).sum(dim=1)
-    weight_sum = weights.sum(-1).sum(-1)  # Regularization for white background 
-    return c + 1 - weight_sum.unsqueeze(-1)
 
 def render(model, rays_origin, rays_direction, args):
     """
@@ -355,8 +210,8 @@ def render(model, rays_origin, rays_direction, args):
     
     rays_direction = rays_direction.expand(n_bins, rays_direction.shape[0], 3).transpose(0, 1).reshape(-1, 3)
     
-    colors, sigma = model(flattened_query_input)
-    # colors, sigma = model(flattened_query_input, rays_direction)
+    # colors, sigma = model(flattened_query_input)
+    colors, sigma = model(flattened_query_input, rays_direction)
 
     colors = colors.view(*query_input.shape[:-1], 3)
     sigma = sigma.view(*query_input.shape[:-1])
@@ -367,15 +222,10 @@ def render(model, rays_origin, rays_direction, args):
     dists[..., :-1] =  t[..., 1:] - t[..., :-1]
     # Now, set the last entry to 1e10 to simulate an "infinite" distance for the last sample
     dists[..., -1] = 1e10
-    #200*n_bins_*6
     
-    # print(f" Dists shape: {dists.shape}")
 
-    # Compute alpha values from sigma and distances
+    # Compute alpha values from sigma and distances and Compute weights for RGB and depth accumulation
     alpha = 1.0 - torch.exp(-sigma * dists)
-    # print(f" Alpha shape: {alpha.shape}")
-    
-    # Compute weights for RGB and depth accumulation
     adjusted_alpha = 1.0 - alpha + 1e-10
 
     # Pad the tensor with ones at the beginning of the dimension of interest
@@ -386,10 +236,8 @@ def render(model, rays_origin, rays_direction, args):
 
     # Remove the first element to get the "exclusive" cumulative product
     T = cumprod_padded[..., 1:]
-    
     weights = alpha * T
 
-    # print(f" Weights shape: {weights.shape}")
     # Compute weighted sum of colors to get RGB map
     rgb_map = torch.sum(weights.unsqueeze(-1) * colors, dim=-2)
     
@@ -433,7 +281,7 @@ def loss(groundtruth, prediction):
 
 def train(images, poses, camera_info, args):
 
-    model = NerfModel().to(device)
+    model = NeRFmodel().to(device)
     # model = VeryTinyNerfModel().to(device)
     # model.load_state_dict(torch.load("Output/checkpoint/model_500.pt", map_location=device))
     # model = TinyNeRFmodel().to(device)
@@ -451,7 +299,8 @@ def train(images, poses, camera_info, args):
 
     best_loss = float('inf')
     for i in range(args.max_iters):
-       
+
+    # for i in range(args.epochs):
         model.train()
 
         with autocast():
@@ -464,6 +313,7 @@ def train(images, poses, camera_info, args):
             
             current_loss = loss(batch_gt_colors, rgb_pred)
             print(f" Iteration: {i}, Loss: {current_loss.item()}")
+
             optimiser.zero_grad()
             # current_loss.backward()
             # optimiser.step()
@@ -483,56 +333,26 @@ def train(images, poses, camera_info, args):
             
             if current_loss.item() < best_loss:
                 best_loss = current_loss
-                print(f"Saving model at iteration: {i}")
+                print(f"Saving model at iteration: {i}, Loss: {current_loss}")
                 torch.save(model.state_dict(), f"{args.checkpoint_path}/model_{i}.pt")
             
-            print(f" Iteration: {i}, Loss: {current_loss}")
-            
-            
-        #     model.eval()
-        #     with torch.no_grad():
-        #         test_ray_origins, test_ray_directions, test_gt  = generateRays_and_gt(test_images, test_poses, camera_info, args)
-                
-        #         rgb_pred_test = []
-        #         for i in range(1600):
-        #             index_1 = i * 100
-        #             index_2 = (i+1) * 100
-        #             test_origins, test_directions, gt = generateBatch(test_ray_origins[index_1:index_2], test_ray_directions[index_1:index_2], test_gt[index_1:index_2], args, train=False)
-                    
-        #             pred = render(model, test_origins, test_directions, args)
-                    
-        #             # pred = render_rays(model, test_origins, test_directions)
-        #             rgb_pred_test.append(pred)
-                    
-        #         rgb_pred_test = torch.cat(rgb_pred_test, dim=0)
-        #         pred_image = rgb_pred_test.view(400, 400, 3).cpu().detach().numpy()
-        #         gt_image = test_gt[0:160000].view(400, 400, 3).cpu().detach().numpy()
-             
-        #         # Plotting the original vs predicted images
-        #         fig, ax = plt.subplots(1, 2, figsize=(10, 5))
-                
-        #         ax[0].imshow(gt_image)
-        #         ax[0].set_title("Original Test Image")
-        #         ax[0].axis('off')  # Hide axes ticks
-                
-        #         ax[1].imshow(pred_image)
-        #         ax[1].set_title("Predicted Test Image")
-        #         ax[1].axis('off')  # Hide axes ticks
-    
-        #         plt.show()
+            # print(f" Iteration: {i}, Loss: {current_loss}")
 
-def render_image(model, test_ray_origins, test_ray_directions, H, W, args):
+
+
+def render_image(model, test_ray_origins, test_ray_directions, test_gt, H, W, args):
     rgb_pred_test = []
-    num_rays_per_batch = 200
+    num_rays_per_batch = 4000
 
     for i in range(H * W // num_rays_per_batch):
         index_1 = i * num_rays_per_batch
         index_2 = (i + 1) * num_rays_per_batch
-        test_origins_batch = test_ray_origins[index_1:index_2]
-        test_directions_batch = test_ray_directions[index_1:index_2]
+      
+        test_origins, test_directions, gt = generateBatch(test_ray_origins[index_1:index_2], test_ray_directions[index_1:index_2], test_gt[index_1:index_2], args, train=False)      
 
         # Assuming generateBatch function generates rays for one batch
-        pred = render(model, test_origins_batch, test_directions_batch, args)
+        pred = render(model, test_origins, test_directions, args)
+        # pred = render_rays(model, test_origins, test_directions)
         rgb_pred_test.append(pred)
 
     rgb_pred_test = torch.cat(rgb_pred_test, dim=0)
@@ -542,8 +362,14 @@ def render_image(model, test_ray_origins, test_ray_directions, H, W, args):
 def test(images, poses, camera_info, args):
     
     if args.load_checkpoint:
-        model = TinyNeRFmodel().to(device)
-        model.load_state_dict(torch.load("Phase2/Output/checkpoint/model_4400.pt", map_location=device))
+        # model = TinyNeRFmodel().to(device)
+        model = NeRFmodel().to(device)
+        # model = NerfModel().to(device)
+        # model.load_state_dict(torch.load("Phase2/Output/NeRF-Lego/Checkpoints/model_9900.pt", map_location=device))
+        # model.load_state_dict(torch.load("Phase2/Output/checkpoint/model_6900.pt", map_location=device))
+        # model.load_state_dict(torch.load("Phase2/Output/checkpoint/TinyNerF-ourData400*400/model_4400.pt", map_location=device))
+        model.load_state_dict(torch.load("Phase2/Output/NeRF-Ship/checkpoint/model_6900.pt", map_location=device))
+
     
     H, W, focal = camera_info
     model.eval()
@@ -553,58 +379,46 @@ def test(images, poses, camera_info, args):
     
     with torch.no_grad():
         test_ray_origins, test_ray_directions, test_gt  = generateRays_and_gt(images, poses, camera_info, args)
-        index_2 = 0
         num_images = test_gt.shape[0] // (H*W)
         num_rays_per_image = H*W
         frames = []
         
-        # for iteration_index in range(num_images):
-        #     rgb_pred_test = []
-        #     for i in range(H*W//200):
-        #         index_1 = index_2
-        #         index_2 = index_2 + 200
-        #         test_origins, test_directions, gt = generateBatch(test_ray_origins[index_1:index_2], test_ray_directions[index_1:index_2], test_gt[index_1:index_2], args, train=False)
-        #         pred = render(model, test_origins, test_directions, args)
-        #         rgb_pred_test.append(pred)
+        for index in range(num_images):
+            print(f"Testing on image: {index}")
 
-        #     rgb_pred_test = torch.cat(rgb_pred_test, dim=0)
-        #     pred_image = rgb_pred_test.view(H, W, 3).cpu().detach().numpy()
-        #     gt_image = test_gt[iteration_index * num_rays_per_image:(iteration_index + 1) * num_rays_per_image].view(H, W, 3).cpu().detach().numpy()
-        
-        for iteration_index in range(num_images):
-            pred_image = render_image(model, test_ray_origins, test_ray_directions, H, W, args)
-            gt_image = test_gt[iteration_index * num_rays_per_image:(iteration_index + 1) * num_rays_per_image].view(H, W, 3).cpu().detach().numpy()
-            
-            frames.append((255 * pred_image).astype(np.uint8))
-
-            # Calculate PSNR
-            psnr = PSNR(gt_image, pred_image)
-            PSNRs.append(psnr)
-            
-            # Calculate SSIM
-            ssim = SSIM(gt_image, pred_image)
-            SSIMs.append(ssim)
-            
-            
-            if args.plot:
-                # Plotting the original vs predicted images
-                fig, ax = plt.subplots(1, 2, figsize=(10, 5))
+            if index == 66:
+                pred_image = render_image(model, test_ray_origins[num_rays_per_image * index:num_rays_per_image * (index + 1)], test_ray_directions[num_rays_per_image * index:num_rays_per_image * (index + 1)], test_gt, H, W, args)
+                gt_image = test_gt[index * num_rays_per_image:(index + 1) * num_rays_per_image].view(H, W, 3).cpu().detach().numpy()
                 
-                ax[0].imshow(gt_image)
-                ax[0].set_title("Original Test Image")
-                ax[0].axis('off')  # Hide axes ticks
+                frames.append((255 * pred_image).astype(np.uint8))
+
+                # Calculate PSNR
+                psnr = PSNR(gt_image, pred_image)
+                PSNRs.append(psnr)
                 
-                ax[1].imshow(pred_image)
-                ax[1].set_title("Predicted Test Image")
-                ax[1].axis('off')  # Hide axes ticks
+                # Calculate SSIM
+                ssim = SSIM(gt_image, pred_image)
+                SSIMs.append(ssim)
+            
+            
+                if args.plot:
+                    # Plotting the original vs predicted images
+                    fig, ax = plt.subplots(1, 2, figsize=(10, 5))
+                    
+                    ax[0].imshow(gt_image)
+                    ax[0].set_title("Original Test Image")
+                    ax[0].axis('off')  # Hide axes ticks
+                    
+                    ax[1].imshow(pred_image)
+                    ax[1].set_title("Predicted Test Image")
+                    ax[1].axis('off')  # Hide axes ticks
 
-                plt.show()
+                    plt.show()
 
-    
     print(f"Average PSNR: {torch.mean(torch.tensor(PSNRs))}")
     print(f"Average SSIM: {torch.mean(torch.tensor(SSIMs))}")
     
-    gif_filename = 'animation.gif'
+    gif_filename = 'animation_ship.gif'
     imageio.mimsave(gif_filename, frames, fps=30)
 
     print(f"GIF saved as {gif_filename}")
@@ -644,8 +458,8 @@ def main(args):
 
 def configParser():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--data_path',default="./Phase2/Data/lego/transforms_train.json",help="dataset path")
-    parser.add_argument('--mode',default='test',help="train/test/val")
+    parser.add_argument('--data_path',default="./Phase2/Data/ship/transforms_train.json",help="dataset path")
+    parser.add_argument('--mode',default='train',help="train/test/val")
     parser.add_argument('--lrate',default=5e-4,help="training learning rate")
     parser.add_argument('--n_pos_freq',default=10,help="number of positional encoding frequencies for position")
     parser.add_argument('--n_dirc_freq',default=4,help="number of positional encoding frequencies for viewing direction")
@@ -659,6 +473,7 @@ def configParser():
     parser.add_argument('--images_path', default="./image/",help="folder to store images")
     parser.add_argument('--epochs', default=1000, help="number of epochs")
     parser.add_argument('--plot', default=True, help="whether to plot images or not")
+    parser.add_argument('--image_size', default=400, help="image size")
     return parser
 
 if __name__ == "__main__":
